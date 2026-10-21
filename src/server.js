@@ -109,6 +109,7 @@ function createServer(options = {}) {
             `and symlinks. Analyzes at most max_files files (default ${limits.maxFiles}); 'truncated' tells ` +
             "you when there were more. 'incomplete' lists files whose analysis did not finish (e.g. parse errors); " +
             "their risk is not reliable, check them separately. statusCounts counts complete vs incomplete. " +
+            "Files that could not be read are listed in skipped.unreadable and are not counted as analyzed. " +
             "Use analyze_file for the full IR of a single file. " + UNTRUSTED_NOTE,
         inputSchema: {
             path: z.string().min(1).optional().describe("Folder path, absolute or relative to the first allowed folder (default: the first allowed folder)"),

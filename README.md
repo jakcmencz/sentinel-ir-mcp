@@ -29,7 +29,7 @@ of safety. Python and other languages are not supported yet.
 |---|---|---|
 | `analyze_code` | `code` (string), optional `target` (file name) | compact IR of the given source |
 | `analyze_file` | `path` | compact IR of one file inside the allowed folders |
-| `analyze_directory` | optional `path`, `max_files` (default 50, max 500), `recursive` (default `true`) | one IR summary per file, sorted from highest to lowest risk, plus `riskCounts`, `statusCounts` and `incomplete` (paths whose analysis did not finish; check them separately, their low risk is not evidence of safety), `truncated` and `skipped` |
+| `analyze_directory` | optional `path`, `max_files` (default 50, max 500), `recursive` (default `true`) | one IR summary per file, sorted from highest to lowest risk, plus `riskCounts`, `statusCounts` and `incomplete` (paths whose analysis did not finish; check them separately, their low risk is not evidence of safety); files that could not be read are listed in `skipped.unreadable` and are not counted as analyzed, `truncated` and `skipped` |
 
 Every tool returns the result twice: as JSON text (for clients that only read
 text) and as `structuredContent`. All three are annotated
