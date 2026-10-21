@@ -90,6 +90,11 @@ async function analyzeDirectory(requested, roots, { maxFiles, maxFileBytes, recu
     const riskCounts = { critical: 0, high: 0, medium: 0, low: 0 };
     for (const r of results) if (r.risk in riskCounts) riskCounts[r.risk]++;
 
+    // Files whose analysis did not finish are listed on their own: their risk
+    // is not reliable, so sorting alone would bury them under riskier files.
+    const incomplete = results.filter((r) => r.analysisStatus !== "complete").map((r) => r.path).sort();
+    const statusCounts = { complete: results.length - incomplete.length, incomplete: incomplete.length };
+
     return {
         folder: display,
         analyzed: results.length,
@@ -97,6 +102,8 @@ async function analyzeDirectory(requested, roots, { maxFiles, maxFileBytes, recu
         maxFiles,
         skipped,
         riskCounts,
+        statusCounts,
+        incomplete,
         files: results
     };
 }

@@ -102,6 +102,8 @@ test("analyze_directory summarizes files sorted by risk and skips what it must",
     assert.deepEqual(out.files.map((f) => f.path), ["danger.js", "lib/deep/files.cjs", "server.js", "lib/util.mjs"]);
     assert.deepEqual(out.files.map((f) => f.risk), ["critical", "high", "medium", "low"]);
     assert.deepEqual(out.riskCounts, { critical: 1, high: 1, medium: 1, low: 1 });
+    assert.deepEqual(out.statusCounts, { complete: 4, incomplete: 0 });
+    assert.deepEqual(out.incomplete, []);
     assert.equal(out.truncated, false);
     assert.equal(out.skipped.symlinks, 2);
     assert.ok(!r.text.includes("node_modules") && !r.text.includes(".hidden") && !r.text.includes(".git"));
