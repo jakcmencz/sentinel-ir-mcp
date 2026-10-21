@@ -10,7 +10,7 @@ const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio
 const { createServer, DEFAULT_LIMITS } = require("../src/server");
 const { version } = require("../package.json");
 
-const USAGE = `sentinel-ir-mcp ${version} — MCP server for sentinel-ir (JavaScript only)
+const USAGE = `sentinel-ir-mcp ${version} — MCP server for sentinel-ir (JavaScript and TypeScript)
 
 Usage: sentinel-ir-mcp [options] [folder ...]
 

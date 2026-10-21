@@ -3,7 +3,7 @@
 MCP server for [`sentinel-ir`](https://www.npmjs.com/package/sentinel-ir):
 it lets AI agents in Claude Desktop, Cursor, Windsurf or any other
 [Model Context Protocol](https://modelcontextprotocol.io) client read a
-compact **structural IR** of JavaScript files instead of the raw source.
+compact **structural IR** of JavaScript and TypeScript files instead of the raw source.
 
 - npm: <https://www.npmjs.com/package/sentinel-ir-mcp>
 - GitLab: <https://gitlab.com/jakubrojicek11/sentinel-ir-mcp>
@@ -15,9 +15,13 @@ environment reads, network / filesystem / process / crypto calls) in a few
 hundred characters. The agent can triage a folder first and then read the raw
 source only of the files that matter.
 
-**JavaScript only** (`.js`, `.mjs`, `.cjs`; CommonJS and ESM). TypeScript and
-other languages are not supported. The IR format and its limits are documented
-in the [`sentinel-ir` README](https://gitlab.com/jakubrojicek11/sentinel-ir#api).
+**Supported:** JavaScript (`.js`, `.mjs`, `.cjs`) and TypeScript (`.ts`, `.mts`,
+`.cts`, `.tsx`; since 0.2.0). The language is picked from the file extension;
+`analyze_code` also takes `target` or an explicit `language`
+(`javascript` | `typescript` | `tsx`). Every result carries `language` and
+`analysisStatus`; a file that does not parse cleanly (including JSX in a `.ts`
+file) is `"incomplete"`, and a low risk on an incomplete result is not evidence
+of safety. Python and other languages are not supported yet.
 
 ## Tools
 
@@ -118,7 +122,7 @@ sentinel-ir-mcp [--max-file-bytes <n>] [--max-files <n>] [folder ...]
 ## What the server can and cannot do
 
 - **Reads only.** It never writes files, runs commands or opens network
-  connections. The only files it opens are `.js`/`.mjs`/`.cjs` files up to
+  connections. The only files it opens are `.js`/`.mjs`/`.cjs`/`.ts`/`.mts`/`.cts`/`.tsx` files up to
   `--max-file-bytes`.
 - **Only inside the allowed folders.** Every path is resolved to its real path
   (symlinks followed) and must lie inside a folder given on the command line,
@@ -172,7 +176,7 @@ npm test        # starts the real server over stdio and talks to it with the MCP
 ```
 
 Tests cover the tool list and annotations, all three tools, refusals for
-`../`, absolute paths, symlinks out of the folder, non-JavaScript files and
+`../`, absolute paths, symlinks out of the folder, unsupported file types and
 size limits, MCP roots from the client, and the command-line options.
 
 Release: bump `version` in `package.json`, push a protected tag `vX.Y.Z`;

@@ -32,7 +32,7 @@ test("lists the three read-only tools", async () => {
 test("server reports name, version and instructions", () => {
     assert.equal(client.getServerVersion().name, "sentinel-ir-mcp");
     assert.equal(client.getServerVersion().version, require("../package.json").version);
-    assert.match(client.getInstructions(), /JavaScript only/);
+    assert.match(client.getInstructions(), /TypeScript \(\.ts, \.mts, \.cts, \.tsx\)/);
 });
 
 test("analyze_code returns the compact IR as text and structured content", async () => {
@@ -40,7 +40,7 @@ test("analyze_code returns the compact IR as text and structured content", async
     assert.equal(r.isError, undefined);
     assert.deepEqual(JSON.parse(r.text), r.structuredContent);
     const ir = r.structuredContent;
-    assert.deepEqual(Object.keys(ir), ["analysisStatus", "mission", "world", "constraints", "forbidden", "summary", "facts"]);
+    assert.deepEqual(Object.keys(ir), ["analysisStatus", "language", "mission", "world", "constraints", "forbidden", "summary", "facts"]);
     assert.equal(ir.mission.target, "snippet.js");
     assert.equal(ir.world.risk, "critical");
     assert.ok(ir.forbidden.includes("eval"));
