@@ -3,13 +3,16 @@
 const fs = require("fs/promises");
 const path = require("path");
 const { analyzeAsync, compress } = require("sentinel-ir");
-const { AccessError, resolveInside, isJavaScriptFile } = require("./paths");
+const { AccessError, resolveInside, isSourceFile } = require("./paths");
 
 const SKIP_DIRS = new Set(["node_modules", ".git"]);
 const RISK_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
 
-async function analyzeCode(code, target) {
-    const ir = await analyzeAsync(code, typeof target === "string" && target ? { target } : {});
+async function analyzeCode(code, target, language) {
+    const options = {};
+    if (typeof target === "string" && target) options.target = target;
+    if (typeof language === "string" && language) options.language = language;
+    const ir = await analyzeAsync(code, options);
     return compress(ir);
 }
 
@@ -17,8 +20,8 @@ async function analyzeFile(requested, roots, { maxFileBytes }) {
     const { real, display } = resolveInside(requested, roots);
     const stat = await fs.stat(real);
     if (!stat.isFile()) throw new AccessError(`Not a file: ${requested}`);
-    if (!isJavaScriptFile(real)) {
-        throw new AccessError(`Unsupported file type: ${requested} (only .js, .mjs and .cjs)`);
+    if (!isSourceFile(real)) {
+        throw new AccessError(`Unsupported file type: ${requested} (only .js, .mjs, .cjs, .ts, .mts, .cts and .tsx)`);
     }
     if (stat.size > maxFileBytes) {
         throw new AccessError(`File too large: ${requested} is ${stat.size} bytes, limit is ${maxFileBytes}`);
@@ -45,7 +48,7 @@ async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive }) {
                 skipped.symlinks++;
             } else if (entry.isDirectory()) {
                 if (recursive && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith(".")) queue.push(full);
-            } else if (entry.isFile() && isJavaScriptFile(entry.name)) {
+            } else if (entry.isFile() && isSourceFile(entry.name)) {
                 const { size } = await fs.stat(full);
                 if (size > maxFileBytes) {
                     skipped.tooLarge.push(rel);
@@ -73,6 +76,7 @@ async function analyzeDirectory(requested, roots, { maxFiles, maxFileBytes, recu
         results.push({
             path: rel,
             analysisStatus: ir.analysisStatus,
+            language: ir.language,
             risk: ir.world.risk,
             objective: ir.mission.objective,
             forbidden: ir.forbidden,

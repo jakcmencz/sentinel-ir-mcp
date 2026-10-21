@@ -5,6 +5,8 @@ const path = require("path");
 const { fileURLToPath } = require("url");
 
 const JS_EXTENSIONS = new Set([".js", ".mjs", ".cjs"]);
+const TS_EXTENSIONS = new Set([".ts", ".mts", ".cts", ".tsx"]);
+const SOURCE_EXTENSIONS = new Set([...JS_EXTENSIONS, ...TS_EXTENSIONS]);
 
 class AccessError extends Error {}
 
@@ -69,6 +71,10 @@ function resolveInside(requested, roots) {
     return { real, root, display: path.relative(root, real).split(path.sep).join("/") || "." };
 }
 
+function isSourceFile(file) {
+    return SOURCE_EXTENSIONS.has(path.extname(file).toLowerCase());
+}
+
 function isJavaScriptFile(file) {
     return JS_EXTENSIONS.has(path.extname(file).toLowerCase());
 }
@@ -76,9 +82,12 @@ function isJavaScriptFile(file) {
 module.exports = {
     AccessError,
     JS_EXTENSIONS,
+    TS_EXTENSIONS,
+    SOURCE_EXTENSIONS,
     canonicalRoots,
     rootsFromUris,
     resolveInside,
     isInside,
-    isJavaScriptFile
+    isJavaScriptFile,
+    isSourceFile
 };
