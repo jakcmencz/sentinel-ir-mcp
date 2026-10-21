@@ -77,4 +77,6 @@ test("analyze_directory includes TypeScript files with their language", async ()
         ["ts/broken.ts", "typescript", "low", "incomplete"],
         ["ts/types.d.ts", "typescript", "low", "complete"]
     ]);
+    assert.deepEqual(out.statusCounts, { complete: 4, incomplete: 1 });
+    assert.deepEqual(out.incomplete, ["ts/broken.ts"], "an incomplete file is surfaced even though it sorts last by risk");
 });

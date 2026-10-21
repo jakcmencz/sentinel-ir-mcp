@@ -29,6 +29,7 @@ const INSTRUCTIONS =
     "Prefer analyze_file or analyze_directory over reading raw source when you only need structure " +
     "or risk, then read the raw source of the files that matter. Supported: JavaScript (.js, .mjs, .cjs) and TypeScript (.ts, .mts, .cts, .tsx); the language is picked from the file extension. " +
     "Rely on analysisStatus, world.risk, forbidden and facts; analysisStatus \"incomplete\" means the file did not parse cleanly. " +
+    "analyze_directory lists such files separately in 'incomplete'; their low risk is not evidence of safety. " +
     "Read-only: nothing is written, executed or sent over the network. " + UNTRUSTED_NOTE;
 
 function ok(value) {
@@ -106,7 +107,10 @@ function createServer(options = {}) {
             "Scan a folder inside the allowed folders and return one compact IR summary per JavaScript or TypeScript file, " +
             "sorted from highest to lowest risk, plus risk counts. Skips node_modules, .git, hidden folders " +
             `and symlinks. Analyzes at most max_files files (default ${limits.maxFiles}); 'truncated' tells ` +
-            "you when there were more. Use analyze_file for the full IR of a single file. " + UNTRUSTED_NOTE,
+            "you when there were more. 'incomplete' lists files whose analysis did not finish (e.g. parse errors); " +
+            "their risk is not reliable, check them separately. statusCounts counts complete vs incomplete. " +
+            "Files that could not be read are listed in skipped.unreadable and are not counted as analyzed. " +
+            "Use analyze_file for the full IR of a single file. " + UNTRUSTED_NOTE,
         inputSchema: {
             path: z.string().min(1).optional().describe("Folder path, absolute or relative to the first allowed folder (default: the first allowed folder)"),
             max_files: z.number().int().min(1).max(DEFAULT_LIMITS.hardMaxFiles).optional()
