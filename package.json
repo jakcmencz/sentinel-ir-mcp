@@ -1,0 +1,52 @@
+{
+  "name": "sentinel-ir-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for sentinel-ir: lets AI agents (Claude Desktop, Cursor, Windsurf, ...) read a compact structural IR of JavaScript files instead of the raw source. Read-only, sandboxed to allowed folders.",
+  "main": "src/server.js",
+  "bin": {
+    "sentinel-ir-mcp": "bin/sentinel-ir-mcp.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "start": "node bin/sentinel-ir-mcp.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "sentinel-ir": "^0.1.3",
+    "zod": "^4.1.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "sentinel-ir",
+    "ai-agent",
+    "llm",
+    "code-analysis",
+    "static-analysis",
+    "tree-sitter",
+    "javascript",
+    "claude",
+    "cursor",
+    "windsurf"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://gitlab.com/jakubrojicek11/sentinel-ir-mcp.git"
+  },
+  "homepage": "https://gitlab.com/jakubrojicek11/sentinel-ir-mcp#readme",
+  "bugs": {
+    "url": "https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/issues"
+  },
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  }
+}
