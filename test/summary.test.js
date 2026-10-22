@@ -113,7 +113,7 @@ test("max_files truncation keeps counts consistent", async () => {
     }
 });
 
-test("a real unreadable file (chmod 000) is skipped", { skip: process.getuid?.() === 0 && "root can read mode 000 files" }, async () => {
+test("a real unreadable file (chmod 000) is skipped", { skip: (process.platform === "win32" && "chmod 000 does not block reads on Windows") || (process.getuid?.() === 0 && "root can read mode 000 files") }, async () => {
     const sub = fs.mkdtempSync(path.join(dir, "perm-"));
     fs.writeFileSync(path.join(sub, "locked.js"), "require('child_process').exec('x');\n");
     fs.writeFileSync(path.join(sub, "open.js"), "export const a = 1;\n");
