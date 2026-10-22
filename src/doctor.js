@@ -5,7 +5,7 @@ const path = require("path");
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
 const { version } = require("../package.json");
-const { SERVER_NAME, PACKAGE_SPEC, WORKSPACE_VAR, CLIENTS, FILE_CLIENTS } = require("./clients");
+const { SERVER_NAME, PACKAGE_SPEC, WORKSPACE_VAR, CLIENTS, FILE_CLIENTS, isWindowsNpxWrapper } = require("./clients");
 const { readConfig } = require("./setup");
 
 const BIN = path.join(__dirname, "..", "bin", "sentinel-ir-mcp.js");
@@ -33,7 +33,7 @@ function entryFolders(args) {
     return folders;
 }
 
-function checkConfig(client, file, explicit, project, add) {
+function checkConfig(client, file, explicit, project, add, platform) {
     const label = CLIENTS[client].label;
     if (!file) {
         if (explicit) add("fail", `${client}.config`, `${label}: config location unknown on this system`, "Pass the config path with --config <file>.");
@@ -64,8 +64,14 @@ function checkConfig(client, file, explicit, project, add) {
             `Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
         return null;
     }
-    add(entry.command === "npx" ? "ok" : "warn", `${client}.entry`, `${label}: "${SERVER_NAME}" runs ${entry.command} ${args.join(" ")}`,
-        entry.command === "npx" ? undefined : `Expected "npx"; make sure "${entry.command}" starts sentinel-ir-mcp.`);
+    const runs = `${label}: "${SERVER_NAME}" runs ${entry.command} ${args.join(" ")}`;
+    if (entry.command === "npx" && platform === "win32") {
+        add("warn", `${client}.entry`, runs, `On Windows a client may not find "npx" without a shell. Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
+    } else if (entry.command === "npx" || isWindowsNpxWrapper(entry)) {
+        add("ok", `${client}.entry`, runs);
+    } else {
+        add("warn", `${client}.entry`, runs, `Expected "npx"; make sure "${entry.command}" starts sentinel-ir-mcp.`);
+    }
     const resolved = [];
     for (const f of folders) {
         const real = f === WORKSPACE_VAR ? project : path.resolve(f);
@@ -130,8 +136,14 @@ async function runDoctor(opts, io) {
     let folders = null;
     for (const client of names) {
         const ctx = { project, global: Boolean(opts.global), env: io.env, platform: io.platform };
-        const file = opts.config ? path.resolve(io.cwd, opts.config) : CLIENTS[client].configPath(ctx);
-        const found = checkConfig(client, file, Boolean(opts.client), project, add);
+        let file = opts.config ? path.resolve(io.cwd, opts.config) : CLIENTS[client].configPath(ctx);
+        const legacy = !opts.config && CLIENTS[client].legacyConfigPath ? CLIENTS[client].legacyConfigPath(ctx) : null;
+        if (legacy && !(file && fs.existsSync(file)) && fs.existsSync(legacy)) {
+            add("warn", `${client}.location`, `${CLIENTS[client].label}: only the old config ${legacy} exists`,
+                `Current ${CLIENTS[client].label} reads ${file || "a new location"}. Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
+            file = legacy;
+        }
+        const found = checkConfig(client, file, Boolean(opts.client), project, add, io.platform);
         if (found && folders === null) folders = found;
     }
     if (folders === null) {

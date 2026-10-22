@@ -2,7 +2,7 @@
 
 // Windows-only measurement: which quoting of the printed install commands
 // reaches a .cmd shim (like code.cmd / claude.cmd) with the exact arguments,
-// when the command is pasted into PowerShell 5.1, PowerShell 7 or cmd.exe.
+// when the command setup prints is pasted into PowerShell 5.1, PowerShell 7 or cmd.exe.
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -15,28 +15,12 @@ fs.writeFileSync(path.join(dir, "argv.js"), "process.stdout.write(JSON.stringify
 for (const name of ["code", "claude"]) fs.writeFileSync(path.join(dir, `${name}.cmd`), `@node "%~dp0argv.js" %*\r\n`);
 const env = { ...process.env, Path: `${dir};${process.env.Path || process.env.PATH}` };
 
-const json = JSON.stringify({ name: "sentinel-ir", type: "stdio", command: "npx", args: ["-y", "sentinel-ir-mcp@0.2", project] });
-const msvc = (s) => `"${s.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, "$1$1")}"`;
-const psSingle = (s) => `'${s.replace(/'/g, "''")}'`;
-const expected = {
-    vscode: ["--add-mcp", json],
-    claude: ["mcp", "add", "--transport", "stdio", "sentinel-ir", "--", "cmd", "/c", "npx", "-y", "sentinel-ir-mcp@0.2", project]
-};
-const cc = "claude mcp add --transport stdio sentinel-ir -- cmd /c npx -y sentinel-ir-mcp@0.2";
-const candidates = {
-    vscode: {
-        posixSingle: `code --add-mcp '${json.replace(/'/g, "'\\''")}'`,
-        psSingleNaiveBackslash: `code --add-mcp ${psSingle(json.replace(/"/g, '\\"'))}`,
-        psSingleMsvc: `code --add-mcp ${psSingle(msvc(json))}`,
-        stopParsingMsvc: `code --% --add-mcp ${msvc(json)}`,
-        bareMsvc: `code --add-mcp ${msvc(json)}`
-    },
-    claude: {
-        posixSingle: `${cc} '${project}'`,
-        double: `${cc} "${project}"`,
-        stopParsingDouble: `claude --% mcp add --transport stdio sentinel-ir -- cmd /c npx -y sentinel-ir-mcp@0.2 "${project}"`
-    }
-};
+const { installCommand } = require("../src/clients");
+const projects = [project, path.join(dir, "it's $HOME & co")];
+fs.mkdirSync(projects[1]);
+const expected = (tool, folder) => tool === "vscode"
+    ? ["--add-mcp", JSON.stringify({ name: "sentinel-ir", type: "stdio", command: "npx", args: ["-y", "sentinel-ir-mcp@0.2", folder] })]
+    : ["mcp", "add", "--transport", "stdio", "sentinel-ir", "--", "cmd", "/c", "npx", "-y", "sentinel-ir-mcp@0.2", folder];
 
 const shells = [];
 const has = (exe) => spawnSync("where", [exe], { encoding: "utf8" }).status === 0;
@@ -50,18 +34,21 @@ for (const shell of shells) {
         const v = shell.run(writeScript("$PSVersionTable.PSVersion.ToString()", shell.ext));
         console.log(`${shell.name}: version ${String(v.stdout).trim()}`);
     }
-    for (const [tool, cands] of Object.entries(candidates)) {
-        for (const [name, line] of Object.entries(cands)) {
+    const kind = shell.name === "cmd" ? "cmd" : "powershell";
+    for (const folder of projects) {
+        for (const [tool, client] of [["vscode", "vscode"], ["claude", "claude-code"]]) {
+            const line = installCommand(client, folder, "win32", kind);
             const r = shell.run(writeScript(shell.ext === ".cmd" ? `@${line}` : line, shell.ext));
             let got;
             try { got = JSON.parse(r.stdout); } catch { got = { stdout: r.stdout, stderr: r.stderr }; }
-            const ok = JSON.stringify(got) === JSON.stringify(expected[tool]);
-            results.push({ shell: shell.name, tool, name, ok, got: ok ? undefined : got });
-            console.log(`${ok ? "OK  " : "BAD "} ${shell.name} ${tool} ${name}${ok ? "" : ` -> ${JSON.stringify(got).slice(0, 300)}`}`);
+            const ok = JSON.stringify(got) === JSON.stringify(expected(tool, folder));
+            results.push({ shell: shell.name, tool, folder, line, ok, got: ok ? undefined : got });
+            console.log(`${ok ? "OK  " : "BAD "} ${shell.name} ${tool} [${path.basename(folder)}]: ${line}${ok ? "" : ` -> ${JSON.stringify(got).slice(0, 300)}`}`);
         }
     }
 }
-fs.writeFileSync(path.join(__dirname, "..", `compat-quote-node${process.versions.node.split(".")[0]}.json`), JSON.stringify({ project, results }, null, 2));
+fs.writeFileSync(path.join(__dirname, "..", `compat-quote-node${process.versions.node.split(".")[0]}.json`), JSON.stringify({ projects, results }, null, 2));
+process.exitCode = results.every((r) => r.ok) ? 0 : 1;
 
 function writeScript(body, ext) {
     const f = path.join(dir, `probe-${Math.random().toString(36).slice(2)}${ext}`);

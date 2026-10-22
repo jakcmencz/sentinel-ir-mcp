@@ -90,9 +90,15 @@ npx -y sentinel-ir-mcp@0.2 guide                     # optional: text for AGENTS
 | `--client` | file written by `setup` |
 |---|---|
 | `cursor` | `<project>/.cursor/mcp.json` with `${workspaceFolder}`; `--global`: `~/.cursor/mcp.json` with the absolute path |
-| `windsurf` | `~/.codeium/windsurf/mcp_config.json` |
+| `windsurf` | `~/.config/devin/mcp_config.json` (or `$XDG_CONFIG_HOME/devin/`), Windows `%APPDATA%\devin\mcp_config.json`. Servers from an older `~/.codeium/windsurf/mcp_config.json` are copied over; that file stays unchanged |
 | `claude-desktop` | macOS `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows `%APPDATA%\Claude\claude_desktop_config.json`; elsewhere pass `--config <file>` |
 | `vscode`, `claude-code` | nothing; prints the command to run |
+
+On Windows the entry is `"command": "cmd", "args": ["/c", "npx", "-y",
+"sentinel-ir-mcp@0.2", "<folder>"]`: there `npx` is `npx.cmd`, and starting it
+without a shell failed with `ENOENT` on a real Windows runner. For VS Code and
+Claude Code, `setup` prints a PowerShell and a Command Prompt version of the
+command. What was measured on which system: [COMPATIBILITY.md](COMPATIBILITY.md).
 
 `doctor` checks Node.js, the package version, the client config (valid JSON, a
 `"sentinel-ir"` entry that starts `sentinel-ir-mcp`, existing folders), then
@@ -161,13 +167,16 @@ Project `.cursor/mcp.json` (or `~/.cursor/mcp.json` for all projects).
 
 #### Windsurf
 
-Cascade panel → `...` → *Open MCP config file* (`mcp_config.json`), then add
-the same entry as for Claude Desktop with your project's absolute path.
+Windsurf 3 (Devin Desktop) reads `~/.config/devin/mcp_config.json`
+(Windows: `%APPDATA%\devin\mcp_config.json`); older versions read
+`~/.codeium/windsurf/mcp_config.json`. Add the same entry as for Claude Desktop
+with your project's absolute path.
 
 #### Other clients
 
 Any MCP client that starts stdio servers works with
-`command: "npx"`, `args: ["-y", "sentinel-ir-mcp@0.2", "<folder>"]`.
+`command: "npx"`, `args: ["-y", "sentinel-ir-mcp@0.2", "<folder>"]`
+(on Windows: `command: "cmd"`, `args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.2", "<folder>"]`).
 Without folder arguments the server uses the client's
 [MCP roots](https://modelcontextprotocol.io/specification/latest/client/roots)
 if the client offers them; if it offers none, only `analyze_code` works.
@@ -244,8 +253,14 @@ size limits, MCP roots from the client, and the command-line options.
 `setup`/`doctor` tests run against temporary `HOME`/`APPDATA` folders: new
 file, keeping other servers and fields, backup, idempotent second run, invalid
 JSON left untouched, `--dry-run`, refused home/root folders, symlinked config,
-Claude Desktop macOS/Windows paths (simulated, not run on those systems), a
-real MCP handshake, failing configs and old Node.js.
+Claude Desktop/Windsurf macOS/Windows paths (simulated), a real MCP
+handshake, failing configs and old Node.js.
+
+A second CI job runs on a real Windows runner (Node 20/22/24): the full test
+suite, the packed package with `setup`/`doctor` against the real `%APPDATA%`,
+starting the published package through `npx`, and the printed VS Code/Claude
+Code commands pasted into PowerShell 5.1, PowerShell 7 and cmd.exe. See
+[COMPATIBILITY.md](COMPATIBILITY.md).
 
 Release: bump `version` in `package.json`, push a protected tag `vX.Y.Z`;
 GitLab CI tests and publishes to npm with provenance.
