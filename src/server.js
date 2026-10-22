@@ -30,6 +30,8 @@ const INSTRUCTIONS =
     "or risk, then read the raw source of the files that matter. Supported: JavaScript (.js, .mjs, .cjs) and TypeScript (.ts, .mts, .cts, .tsx); the language is picked from the file extension. " +
     "Rely on analysisStatus, world.risk, forbidden and facts; analysisStatus \"incomplete\" means the file did not parse cleanly. " +
     "analyze_directory lists such files separately in 'incomplete'; their low risk is not evidence of safety. " +
+    "Suggested order: analyze_directory first, check 'incomplete' and 'skipped.unreadable', pick the relevant files, " +
+    "then analyze_file, and read raw source only where needed. " +
     "Read-only: nothing is written, executed or sent over the network. " + UNTRUSTED_NOTE;
 
 function ok(value) {

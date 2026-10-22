@@ -1,0 +1,241 @@
+"use strict";
+
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { runCommand } = require("../src/cli");
+const { installLinks } = require("../src/clients");
+
+const ENTRY = (folder) => ({ command: "npx", args: ["-y", "sentinel-ir-mcp@0.2", folder] });
+
+function sandbox() {
+    const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "sentinel-ir-setup-")));
+    const home = path.join(base, "home");
+    const project = path.join(base, "project");
+    fs.mkdirSync(home);
+    fs.mkdirSync(project);
+    fs.writeFileSync(path.join(project, "a.js"), "module.exports = 1;\n");
+    return { base, home, project, cleanup: () => fs.rmSync(base, { recursive: true, force: true }) };
+}
+
+async function setup(sb, argv, extra = {}) {
+    let stdout = "";
+    let stderr = "";
+    const io = {
+        stdout: { write: (s) => { stdout += s; } },
+        stderr: { write: (s) => { stderr += s; } },
+        env: { HOME: sb.home, ...(extra.env || {}) },
+        platform: extra.platform || "linux",
+        cwd: extra.cwd || sb.project,
+        isTTY: Boolean(extra.answer !== undefined),
+        prompt: extra.answer !== undefined ? async () => extra.answer : null,
+        now: () => Date.UTC(2026, 9, 18, 12, 0, 0)
+    };
+    const code = await runCommand("setup", argv, io);
+    return { code, stdout, stderr };
+}
+
+const windsurfFile = (sb) => path.join(sb.home, ".codeium", "windsurf", "mcp_config.json");
+const listing = (dir) => fs.readdirSync(dir).sort();
+
+test("clean install writes only the sentinel-ir entry with @0.2 and the project path", async () => {
+    const sb = sandbox();
+    try {
+        const r = await setup(sb, ["--client", "windsurf", "--yes"]);
+        assert.equal(r.code, 0, r.stderr);
+        assert.deepEqual(JSON.parse(fs.readFileSync(windsurfFile(sb), "utf8")), { mcpServers: { "sentinel-ir": ENTRY(sb.project) } });
+        assert.deepEqual(listing(path.dirname(windsurfFile(sb))), ["mcp_config.json"], "no backup or temp file for a new file");
+        assert.match(r.stdout, /new file/);
+    } finally { sb.cleanup(); }
+});
+
+test("existing servers and other fields are kept; a backup is made first; second run changes nothing", async () => {
+    const sb = sandbox();
+    try {
+        const file = windsurfFile(sb);
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        const before = {
+            theme: "dark",
+            mcpServers: {
+                github: { command: "npx", args: ["-y", "@modelcontextprotocol/server-github"], env: { TOKEN: "x" } },
+                postgres: { command: "docker", args: ["run", "pg"], disabled: true }
+            },
+            nested: { a: [1, 2, { b: null }] }
+        };
+        const original = JSON.stringify(before, null, 4) + "\n";
+        fs.writeFileSync(file, original);
+
+        const r = await setup(sb, ["--client", "windsurf", "--yes"]);
+        assert.equal(r.code, 0, r.stderr);
+        const after = JSON.parse(fs.readFileSync(file, "utf8"));
+        assert.deepEqual(after, { ...before, mcpServers: { ...before.mcpServers, "sentinel-ir": ENTRY(sb.project) } });
+        assert.deepEqual(Object.keys(after.mcpServers), ["github", "postgres", "sentinel-ir"]);
+        assert.match(fs.readFileSync(file, "utf8"), /^ {4}"theme"/m, "keeps the file's 4-space indent");
+        assert.match(r.stdout, /Kept unchanged: github, postgres/);
+        const backup = `${file}.bak-20261018T120000Z`;
+        assert.equal(fs.readFileSync(backup, "utf8"), original, "backup is the untouched original");
+        assert.ok(r.stdout.includes(backup));
+
+        const written = fs.readFileSync(file, "utf8");
+        const again = await setup(sb, ["--client", "windsurf", "--yes"]);
+        assert.equal(again.code, 0);
+        assert.match(again.stdout, /Already set up/);
+        assert.equal(fs.readFileSync(file, "utf8"), written, "idempotent: bytes unchanged");
+        assert.deepEqual(listing(path.dirname(file)), ["mcp_config.json", "mcp_config.json.bak-20261018T120000Z"], "no second backup, no duplicate");
+    } finally { sb.cleanup(); }
+});
+
+test("a different existing sentinel-ir entry is replaced, shown before/after, never duplicated", async () => {
+    const sb = sandbox();
+    try {
+        const file = windsurfFile(sb);
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp", "/old"] } } }));
+        const r = await setup(sb, ["--client", "windsurf", "--yes"]);
+        assert.equal(r.code, 0, r.stderr);
+        assert.match(r.stdout, /before: .*\/old/);
+        const after = JSON.parse(fs.readFileSync(file, "utf8"));
+        assert.deepEqual(after.mcpServers, { "sentinel-ir": ENTRY(sb.project) });
+    } finally { sb.cleanup(); }
+});
+
+test("invalid JSON or a wrong shape is never overwritten", async () => {
+    const sb = sandbox();
+    try {
+        const file = windsurfFile(sb);
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        for (const bad of ['{ "mcpServers": { "a": 1, } ', "[1, 2]", '{"mcpServers": []}', '{"mcpServers": "x"}']) {
+            fs.writeFileSync(file, bad);
+            const r = await setup(sb, ["--client", "windsurf", "--yes"]);
+            assert.equal(r.code, 1, bad);
+            assert.match(r.stderr, /Nothing was changed/);
+            assert.equal(fs.readFileSync(file, "utf8"), bad);
+            assert.deepEqual(listing(path.dirname(file)), ["mcp_config.json"], "no backup or temp file");
+        }
+    } finally { sb.cleanup(); }
+});
+
+test("--dry-run and a missing --yes write nothing; an interactive 'y' writes, anything else cancels", async () => {
+    const sb = sandbox();
+    try {
+        const file = windsurfFile(sb);
+        const dry = await setup(sb, ["--client", "windsurf", "--dry-run"]);
+        assert.equal(dry.code, 0);
+        assert.match(dry.stdout, /Dry run\. Nothing was written/);
+        assert.match(dry.stdout, /sentinel-ir-mcp@0\.2/);
+        assert.equal(fs.existsSync(path.join(sb.home, ".codeium")), false);
+
+        const noYes = await setup(sb, ["--client", "windsurf"]);
+        assert.equal(noYes.code, 1);
+        assert.match(noYes.stdout, /--yes/);
+        assert.equal(fs.existsSync(file), false);
+
+        const no = await setup(sb, ["--client", "windsurf"], { answer: "n" });
+        assert.equal(no.code, 1);
+        assert.equal(fs.existsSync(file), false);
+
+        const yes = await setup(sb, ["--client", "windsurf"], { answer: "y" });
+        assert.equal(yes.code, 0);
+        assert.ok(fs.existsSync(file));
+    } finally { sb.cleanup(); }
+});
+
+test("interactive client choice by number", async () => {
+    const sb = sandbox();
+    try {
+        const r = await setup(sb, ["--dry-run"], { answer: "2" });
+        assert.equal(r.code, 0, r.stderr);
+        assert.match(r.stdout, /Client: {2}Windsurf/);
+        const none = await setup(sb, ["--dry-run"]);
+        assert.equal(none.code, 1);
+        assert.match(none.stderr, /--client/);
+    } finally { sb.cleanup(); }
+});
+
+test("refuses the home folder, a disk root and missing folders", async () => {
+    const sb = sandbox();
+    try {
+        for (const [project, msg] of [[sb.home, /home folder/], [path.parse(sb.base).root, /whole disk/], [path.join(sb.base, "nope"), /not found/]]) {
+            const r = await setup(sb, ["--client", "windsurf", "--yes", "--project", project]);
+            assert.equal(r.code, 1, project);
+            assert.match(r.stderr, msg);
+        }
+        const fromHome = await setup(sb, ["--client", "windsurf", "--yes"], { cwd: sb.home });
+        assert.equal(fromHome.code, 1, "running setup inside the home folder without --project is refused");
+        assert.equal(fs.existsSync(windsurfFile(sb)), false);
+    } finally { sb.cleanup(); }
+});
+
+test("Cursor: project config uses ${workspaceFolder}; --global uses ~/.cursor with the absolute path", async () => {
+    const sb = sandbox();
+    try {
+        assert.equal((await setup(sb, ["--client", "cursor", "--yes"])).code, 0);
+        assert.deepEqual(JSON.parse(fs.readFileSync(path.join(sb.project, ".cursor", "mcp.json"), "utf8")),
+            { mcpServers: { "sentinel-ir": ENTRY("${workspaceFolder}") } });
+        assert.equal((await setup(sb, ["--client", "cursor", "--global", "--yes"])).code, 0);
+        assert.deepEqual(JSON.parse(fs.readFileSync(path.join(sb.home, ".cursor", "mcp.json"), "utf8")),
+            { mcpServers: { "sentinel-ir": ENTRY(sb.project) } });
+        const r = await setup(sb, ["--client", "windsurf", "--global", "--yes"]);
+        assert.equal(r.code, 1);
+        assert.match(r.stderr, /--global only applies/);
+    } finally { sb.cleanup(); }
+});
+
+test("Claude Desktop: macOS and Windows locations (simulated HOME/APPDATA); Linux needs --config", async () => {
+    const sb = sandbox();
+    try {
+        assert.equal((await setup(sb, ["--client", "claude-desktop", "--yes"], { platform: "darwin" })).code, 0);
+        assert.ok(fs.existsSync(path.join(sb.home, "Library", "Application Support", "Claude", "claude_desktop_config.json")));
+
+        const appdata = path.join(sb.base, "AppData", "Roaming");
+        assert.equal((await setup(sb, ["--client", "claude-desktop", "--yes"], { platform: "win32", env: { APPDATA: appdata } })).code, 0);
+        assert.ok(fs.existsSync(path.join(appdata, "Claude", "claude_desktop_config.json")));
+
+        const linux = await setup(sb, ["--client", "claude-desktop", "--yes"]);
+        assert.equal(linux.code, 1);
+        assert.match(linux.stderr, /--config/);
+
+        const custom = path.join(sb.base, "custom", "claude.json");
+        assert.equal((await setup(sb, ["--client", "claude-desktop", "--yes", "--config", custom])).code, 0);
+        assert.deepEqual(JSON.parse(fs.readFileSync(custom, "utf8")).mcpServers["sentinel-ir"], ENTRY(sb.project));
+    } finally { sb.cleanup(); }
+});
+
+test("a symlinked config file is updated in place; the link stays a link", async () => {
+    const sb = sandbox();
+    try {
+        const real = path.join(sb.base, "dotfiles", "mcp_config.json");
+        fs.mkdirSync(path.dirname(real), { recursive: true });
+        fs.writeFileSync(real, '{"mcpServers":{"other":{"command":"x"}}}');
+        fs.mkdirSync(path.dirname(windsurfFile(sb)), { recursive: true });
+        fs.symlinkSync(real, windsurfFile(sb));
+        assert.equal((await setup(sb, ["--client", "windsurf", "--yes"])).code, 0);
+        assert.ok(fs.lstatSync(windsurfFile(sb)).isSymbolicLink());
+        assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(real, "utf8")).mcpServers), ["other", "sentinel-ir"]);
+    } finally { sb.cleanup(); }
+});
+
+test("VS Code and Claude Code: setup prints their official command and writes nothing", async () => {
+    const sb = sandbox();
+    try {
+        const vs = await setup(sb, ["--client", "vscode"]);
+        assert.equal(vs.code, 0);
+        const json = vs.stdout.match(/code --add-mcp '(.+)'/)[1];
+        assert.deepEqual(JSON.parse(json), { name: "sentinel-ir", type: "stdio", ...ENTRY(sb.project) });
+        const cc = await setup(sb, ["--client", "claude-code"]);
+        assert.equal(cc.code, 0);
+        assert.ok(cc.stdout.includes(`claude mcp add --transport stdio sentinel-ir -- npx -y sentinel-ir-mcp@0.2 ${sb.project}`));
+        assert.deepEqual(listing(sb.home), []);
+        assert.deepEqual(listing(sb.project), ["a.js"]);
+    } finally { sb.cleanup(); }
+});
+
+test("one-click links decode to the same pinned entry", () => {
+    const { cursor, vscode } = installLinks();
+    const cfg = new URL(cursor).searchParams.get("config");
+    assert.deepEqual(JSON.parse(Buffer.from(cfg, "base64").toString()), ENTRY("${workspaceFolder}"));
+    assert.deepEqual(JSON.parse(decodeURIComponent(vscode.slice("vscode:mcp/install?".length))),
+        { name: "sentinel-ir", type: "stdio", ...ENTRY("${workspaceFolder}") });
+});

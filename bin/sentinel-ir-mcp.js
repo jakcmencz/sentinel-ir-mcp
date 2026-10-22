@@ -13,8 +13,14 @@ const { version } = require("../package.json");
 const USAGE = `sentinel-ir-mcp ${version} — MCP server for sentinel-ir (JavaScript and TypeScript)
 
 Usage: sentinel-ir-mcp [options] [folder ...]
+       sentinel-ir-mcp setup | doctor | guide [--help]
 
-  folder                 Folder(s) the file tools may read. Without folders the
+  setup                  Connect Sentinel-IR to an AI client (shows the change first)
+  doctor                 Check Node.js, the client config and a real MCP connection
+  guide                  Print short usage instructions for AI agents
+
+  folder                 Folder(s) the file tools may read. A folder named like a
+                         command must be written as ./setup, ./doctor or ./guide. Without folders the
                          server uses the MCP roots offered by the client; if the
                          client offers none, only analyze_code works.
   --max-file-bytes <n>   Largest file to analyze (default ${DEFAULT_LIMITS.maxFileBytes})
@@ -22,7 +28,8 @@ Usage: sentinel-ir-mcp [options] [folder ...]
   -h, --help             Show this help
   -v, --version          Show the version
 
-The server only reads files. It never writes, executes or uses the network.`;
+The server only reads files. It never writes, executes or uses the network.
+Only "setup" writes, and only the client config file you confirm.`;
 
 function die(message) {
     process.stderr.write(`sentinel-ir-mcp: ${message}\n\n${USAGE}\n`);
@@ -57,6 +64,12 @@ function parseArgs(argv) {
 }
 
 async function main() {
+    const argv = process.argv.slice(2);
+    const { COMMANDS, runCommand } = require("../src/cli");
+    if (argv.length && COMMANDS.includes(argv[0])) {
+        process.exitCode = await runCommand(argv[0], argv.slice(1));
+        return;
+    }
     const server = createServer(parseArgs(process.argv.slice(2)));
     await server.connect(new StdioServerTransport());
 }
