@@ -51,6 +51,7 @@ windows_compat:
     - $env:Path = "C:\nodejs-ci\node-v$env:NODE_VERSION-win-x64;" + $env:Path
     - node -v
     - npm ci
+    - node scripts/win-quote-probe.js
     - node scripts/compat-smoke.js; $smoke = $LASTEXITCODE
     - node --test (Get-ChildItem test\*.test.js | ForEach-Object FullName); $tests = $LASTEXITCODE
     - exit ($smoke + $tests)
