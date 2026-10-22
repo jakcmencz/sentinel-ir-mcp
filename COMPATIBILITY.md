@@ -82,13 +82,20 @@ AMD64, Windows PowerShell 5.1, Node 22.23.4 / npm 10.9.9. Folders: A =
 | Claude Code | 2.1.308 | printed cmd.exe command (A, B) | `claude mcp list`: `√ Connected`; B stored unchanged |
 | Claude Code | 2.1.308 | printed PowerShell command (A, B), commit `d6119a5` | **failed**: `claude` resolved to `%APPDATA%\npm\claude.ps1`; PowerShell drops an unquoted `--` and ignores `--%` for a script (`unknown option '-y'`, `unknown option '--%'`) |
 | Claude Code | 2.1.308 | printed PowerShell command `... '--' cmd /c npx ... '<folder>'`, commit `4e84797`: A and B in PowerShell 5.1, B in PowerShell 7.6.7 | `claude mcp list` / `get`: `√ Connected`; stored path equals the real path (case-sensitive) |
+| Claude Code (native `claude.exe`, official `install.ps1`) | 2.1.308 | same PowerShell line, B in PowerShell 5.1, commit `a946a24` | `√ Connected`; stored path equals the real path |
 | Cursor | 3.26.16 | README deeplink (user `~/.cursor/mcp.json`) | log: *Successfully connected to stdio server*, `tools=3` |
 | Cursor | 3.26.16 | `setup --client cursor --yes` (project `.cursor/mcp.json`) | entry listed but **disconnected**, server not started; cause not visible without signing in (same on macOS) |
 | Devin Desktop (Windsurf) | 3.10.67 | `setup --client windsurf --yes` | `%APPDATA%\devin\mcp_config.json` written, legacy copy works; app stops at sign-in, server start not observed |
 | Claude Desktop | 3.1623.4 | `setup --client claude-desktop --yes` | config written; app stops at sign-in, no MCP log |
 
+On the same VM at commit `a946a24` (PowerShell 7.6.7 installed):
+`scripts/win-quote-probe.js` 45/45 OK (PowerShell 5.1, PowerShell 7.6.7 and
+cmd.exe × `code.cmd`, npm `claude.ps1`/`claude.cmd`, `claude.exe` × five
+folders); `compat-smoke` 12 PASS, 0 FAIL, real config files byte-identical
+afterwards (SHA-256).
+
 Not measured on Windows: tool calls from an app's agent, the native
-`claude.exe` in a real app, folder A in PowerShell 7, the VS Code deeplink,
+`claude.exe` with folder A or from cmd.exe, folder A in PowerShell 7, the VS Code deeplink,
 arm64. The VS Code, Cursor, Devin and Claude Desktop rows are from commit
 `d6119a5`; their config output did not change afterwards.
 
