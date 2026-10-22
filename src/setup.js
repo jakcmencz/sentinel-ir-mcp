@@ -3,7 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { isDeepStrictEqual } = require("util");
-const { SERVER_NAME, PACKAGE_SPEC, CLIENTS, homeOf, serverEntry, installCommand } = require("./clients");
+const { SERVER_NAME, PACKAGE_SPEC, CLIENTS, homeOf, serverEntry, installCommand, shellQuote, powershellQuote } = require("./clients");
 
 class SetupError extends Error {}
 
@@ -131,6 +131,10 @@ function percentNote(project) {
         : "";
 }
 
+function hintArg(value, platform) {
+    return platform === "win32" ? powershellQuote(value) : shellQuote(value);
+}
+
 async function runSetup(opts, io) {
     const out = (s) => io.stdout.write(s);
     const err = (s) => io.stderr.write(s);
@@ -160,7 +164,7 @@ async function runSetup(opts, io) {
                 out(`${spec.label} adds MCP servers with its own command. Nothing was written. Run:\n\n  ${installCommand(client, project, io.platform)}\n\n`);
             }
             out(`Access: ${project} (only this folder, read-only)\n`);
-            out(`Then check the connection: npx -y ${PACKAGE_SPEC} doctor --project ${project}\n`);
+            out(`Then check the connection${io.platform === "win32" ? " (PowerShell)" : ""}: npx -y ${PACKAGE_SPEC} doctor --client ${client} --project ${hintArg(project, io.platform)}\n`);
             out(percentNote(project));
             return 0;
         }
@@ -197,8 +201,8 @@ async function runSetup(opts, io) {
         }
         const { backup } = applyPlan(plan, io.now ? io.now() : Date.now());
         out(`Written.${backup ? ` Backup: ${backup}` : ""}\n`);
-        out(`Next: restart ${spec.label}, then check the connection:\n  npx -y ${PACKAGE_SPEC} doctor --client ${client}` +
-            `${opts.config ? ` --config ${file}` : ""}${client === "cursor" && !opts.global ? ` --project ${project}` : ""}\n`);
+        out(`Next: restart ${spec.label}, then check the connection${io.platform === "win32" ? " (PowerShell)" : ""}:\n  npx -y ${PACKAGE_SPEC} doctor --client ${client}` +
+            `${opts.config ? ` --config ${hintArg(file, io.platform)}` : ""}${client === "cursor" && !opts.global ? ` --project ${hintArg(project, io.platform)}` : ""}\n`);
         out(`Optional instructions for your agent: npx -y ${PACKAGE_SPEC} guide\n`);
         return 0;
     } catch (e) {

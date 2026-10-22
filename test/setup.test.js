@@ -333,3 +333,22 @@ function windowsArgUnquote(s) {
     }
     return out;
 }
+
+test("printed doctor hints quote the folder so they can be pasted into a shell", async () => {
+    const sb = sandbox();
+    try {
+        const odd = path.join(sb.base, "it's $HOME & 100% (x)");
+        fs.mkdirSync(odd);
+        const cc = await setup(sb, ["--client", "claude-code", "--project", odd]);
+        assert.ok(cc.stdout.includes(`doctor --client claude-code --project ${shellQuote(odd)}\n`), cc.stdout);
+        const cur = await setup(sb, ["--client", "cursor", "--project", odd, "--yes"]);
+        assert.ok(cur.stdout.includes(`doctor --client cursor --project ${shellQuote(odd)}\n`), cur.stdout);
+        const win = await setup(sb, ["--client", "claude-code", "--project", odd], { platform: "win32", env: { APPDATA: path.join(sb.home, "AppData") } });
+        assert.ok(win.stdout.includes(`(PowerShell): npx -y sentinel-ir-mcp@0.2 doctor --client claude-code --project '${odd.replace(/'/g, "''")}'\n`), win.stdout);
+        if (process.platform !== "win32") {
+            const line = cc.stdout.split("\n").find((l) => l.includes("doctor --client"));
+            const argv = require("child_process").execFileSync("bash", ["-c", `printf '%s\\n' ${line.slice(line.indexOf("--project"))}`], { encoding: "utf8" });
+            assert.equal(argv, `--project\n${odd}\n`);
+        }
+    } finally { sb.cleanup(); }
+});
