@@ -296,8 +296,35 @@ test("Windows (simulated): file entries use cmd /c npx; printed Claude Code comm
         for (const line of lines) {
             assert.ok(!line.includes("&") && line.includes("\\u0026"), line);
             const arg = line.slice(line.indexOf("--add-mcp ") + 10).trim();
-            const config = JSON.parse(JSON.parse(arg));
+            const config = JSON.parse(windowsArgUnquote(arg));
             assert.equal(config.args[2], amp);
+        }
+        const pct = path.join(sb.base, "a %OS% b");
+        fs.mkdirSync(pct);
+        const ccPct = await setup(sb, ["--client", "claude-code", "--project", pct], win);
+        const ccLines = ccPct.stdout.split("\n").filter((l) => l.includes("claude mcp"));
+        assert.equal(ccLines.length, 2);
+        for (const line of ccLines) {
+            assert.match(line, /claude mcp add-json (--% )?sentinel-ir "/);
+            assert.ok(!line.includes("%OS%"), line);
+            const config = JSON.parse(windowsArgUnquote(line.slice(line.indexOf(" sentinel-ir ") + 13).trim()));
+            assert.deepEqual(config, { type: "stdio", command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.2", pct] });
         }
     } finally { sb.cleanup(); }
 });
+
+// Inverse of the Windows command-line quoting of one "..." argument (CommandLineToArgvW).
+function windowsArgUnquote(s) {
+    assert.ok(s.startsWith('"') && s.endsWith('"'), s);
+    let out = "";
+    let i = 1;
+    const end = s.length - 1;
+    while (i < end) {
+        let n = 0;
+        while (i < end && s[i] === "\\") { n++; i++; }
+        if (i === end) out += "\\".repeat(n / 2);
+        else if (s[i] === '"') { out += "\\".repeat(Math.floor(n / 2)) + '"'; i++; }
+        else { out += "\\".repeat(n) + s[i]; i++; }
+    }
+    return out;
+}

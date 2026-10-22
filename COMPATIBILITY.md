@@ -45,8 +45,11 @@ https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/pipelines/2977052614):
   cannot be in Windows file names). Checked on every pipeline by
   `scripts/win-quote-probe.js`; for VS Code the received value is compared
   after JSON parsing, as VS Code reads it. Without escaping, `&` in the path
-  broke the VS Code command in all three shells (measured in 0.2.3
-  development), so `setup` writes `& ^ % !` in that JSON as `\u0026` etc.
+  broke the VS Code command in all three shells and `%OS%` in the path was
+  replaced by `Windows_NT` in the Claude Code command (measured during 0.2.3
+  development). So `setup` writes `& ^ % !` in the VS Code JSON as `\u0026`
+  etc., and for a path with `%` it prints `claude mcp add-json` with the same
+  escaping (checked on Linux that Claude Code 2.1.308 stores the decoded path).
 - Not tested on Windows: the real VS Code, Claude Code, Cursor, Windsurf and
   Claude Desktop apps.
 

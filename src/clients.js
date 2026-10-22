@@ -89,6 +89,13 @@ function vscodeConfig(project) {
     return { name: SERVER_NAME, type: "stdio", ...npxEntry(project) };
 }
 
+// code.cmd/claude.cmd re-read their arguments through cmd.exe, which acts on
+// these characters (measured: "&" breaks the line, "%OS%" is expanded); JSON
+// \u escapes keep them out of the command line.
+function cmdSafeJson(value) {
+    return JSON.stringify(value).replace(/[&|<>^%!]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
 // Windows forms were checked in CI against a .cmd shim (like code.cmd and
 // claude.cmd) from PowerShell 5.1, PowerShell 7 and cmd.exe.
 function installCommand(client, project, platform = process.platform, shell = "powershell") {
@@ -96,12 +103,13 @@ function installCommand(client, project, platform = process.platform, shell = "p
     const win = platform === "win32";
     if (client === "vscode") {
         if (!win) return `code --add-mcp ${shellQuote(json)}`;
-        // code.cmd re-reads its arguments through cmd.exe, which acts on these
-        // characters (measured with "&"); JSON \u escapes keep them out of the line.
-        const safe = json.replace(/[&|<>^%!]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
-        return `code ${shell === "cmd" ? "" : "--% "}--add-mcp ${windowsArgQuote(safe)}`;
+        return `code ${shell === "cmd" ? "" : "--% "}--add-mcp ${windowsArgQuote(cmdSafeJson(vscodeConfig(project)))}`;
     }
     if (client === "claude-code") {
+        if (win && project.includes("%")) {
+            const config = { type: "stdio", ...serverEntry(project, "win32") };
+            return `claude mcp add-json ${shell === "cmd" ? "" : "--% "}${SERVER_NAME} ${windowsArgQuote(cmdSafeJson(config))}`;
+        }
         const folder = !win ? shellQuote(project) : shell !== "cmd" && /[$`]/.test(project) ? powershellQuote(project) : `"${project}"`;
         return `claude mcp add --transport stdio ${SERVER_NAME} -- ${win ? "cmd /c npx" : "npx"} -y ${PACKAGE_SPEC} ${folder}`;
     }
