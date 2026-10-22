@@ -96,6 +96,9 @@ function installCommand(client, project, platform = process.platform, shell = "p
     const win = platform === "win32";
     if (client === "vscode") {
         if (!win) return `code --add-mcp ${shellQuote(json)}`;
+        // code.cmd re-reads its arguments through cmd.exe, which changes these
+        // characters inside the JSON (measured); callers offer the install link.
+        if (/[&|<>^%!]/.test(project)) return null;
         return `code ${shell === "cmd" ? "" : "--% "}--add-mcp ${windowsArgQuote(json)}`;
     }
     if (client === "claude-code") {

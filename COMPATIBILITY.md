@@ -38,7 +38,9 @@ Node 20.20.2, 22.23.4, 24.22.1:
   PowerShell 5.1, PowerShell 7.4 and cmd.exe, reach a `.cmd` shim (like
   `code.cmd`/`claude.cmd`) with exactly the intended arguments, for a path with
   a space and for a path with `'`, `$` and `&`. Checked on every pipeline by
-  `scripts/win-quote-probe.js`.
+  `scripts/win-quote-probe.js`. Exception: for VS Code, a path containing
+  `& | < > ^ % !` was changed by cmd.exe inside the JSON in every shell, so
+  for such paths `setup` prints the VS Code install link instead of a command.
 - Not tested on Windows: the real VS Code, Claude Code, Cursor, Windsurf and
   Claude Desktop apps.
 

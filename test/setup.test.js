@@ -287,5 +287,11 @@ test("Windows (simulated): file entries use cmd /c npx; printed Claude Code comm
         const vs = await setup(sb, ["--client", "vscode"], win);
         assert.ok(vs.stdout.includes("code --% --add-mcp \"{\\\"name\\\":"), vs.stdout);
         assert.ok(vs.stdout.includes("code --add-mcp \"{\\\"name\\\":"), vs.stdout);
+        const amp = path.join(sb.base, "a & b");
+        fs.mkdirSync(amp);
+        const vsAmp = await setup(sb, ["--client", "vscode", "--project", amp], win);
+        assert.equal(vsAmp.code, 0);
+        assert.doesNotMatch(vsAmp.stdout, /code --/);
+        assert.ok(vsAmp.stdout.includes(installLinks().vscode));
     } finally { sb.cleanup(); }
 });

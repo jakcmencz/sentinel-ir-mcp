@@ -38,6 +38,11 @@ for (const shell of shells) {
     for (const folder of projects) {
         for (const [tool, client] of [["vscode", "vscode"], ["claude", "claude-code"]]) {
             const line = installCommand(client, folder, "win32", kind);
+            if (line === null) {
+                results.push({ shell: shell.name, tool, folder, ok: true, note: "no command printed; setup prints the install link" });
+                console.log(`SKIP ${shell.name} ${tool} [${path.basename(folder)}]: setup prints the install link instead`);
+                continue;
+            }
             const r = shell.run(writeScript(shell.ext === ".cmd" ? `@${line}` : line, shell.ext));
             let got;
             try { got = JSON.parse(r.stdout); } catch { got = { stdout: r.stdout, stderr: r.stderr }; }
