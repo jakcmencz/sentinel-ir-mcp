@@ -310,6 +310,11 @@ test("Windows (simulated): file entries use cmd /c npx; printed Claude Code comm
             const config = JSON.parse(windowsArgUnquote(line.slice(line.indexOf(" sentinel-ir ") + 13).trim()));
             assert.deepEqual(config, { type: "stdio", command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.2", pct] });
         }
+        assert.match(ccPct.stdout, /contains %\. npm 10\.8 .*URI malformed/);
+        const filePct = await setup(sb, ["--client", "cursor", "--project", pct, "--dry-run"], win);
+        assert.match(filePct.stdout, /URI malformed/);
+        const plain = await setup(sb, ["--client", "claude-code", "--project", sb.project], win);
+        assert.ok(!plain.stdout.includes("URI malformed"), plain.stdout);
     } finally { sb.cleanup(); }
 });
 

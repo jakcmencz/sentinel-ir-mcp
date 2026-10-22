@@ -90,6 +90,20 @@ async function handshake(command, args, cwd) {
     }
     step("published sentinel-ir-mcp@0.2 starts through npx from an MCP SDK client", report.sdkNpx.ok || Boolean(report.sdkCmdNpx && report.sdkCmdNpx.ok), "see INFO lines");
 
+    report.npm = sh("npm -v", base).trim();
+    const pct = path.join(base, "100% done");
+    fs.mkdirSync(pct);
+    fs.copyFileSync(path.join(project, "run.js"), path.join(pct, "run.js"));
+    const pctArgs = ["-y", "sentinel-ir-mcp@0.2", pct];
+    report.npxCwdPercent = process.platform === "win32"
+        ? await handshake("cmd", ["/c", "npx", ...pctArgs], pct)
+        : await handshake("npx", pctArgs, pct);
+    console.log(`INFO npm ${report.npm}, npx started inside a folder whose path contains %:`, JSON.stringify(report.npxCwdPercent));
+    report.npxArgPercent = process.platform === "win32"
+        ? await handshake("cmd", ["/c", "npx", ...pctArgs], base)
+        : await handshake("npx", pctArgs, base);
+    console.log("INFO npx started elsewhere, folder argument contains %:", JSON.stringify(report.npxArgPercent));
+
     const out = path.join(ROOT, `compat-${process.platform}-node${process.versions.node.split(".")[0]}.json`);
     fs.writeFileSync(out, JSON.stringify(report, null, 2));
     fs.rmSync(base, { recursive: true, force: true });

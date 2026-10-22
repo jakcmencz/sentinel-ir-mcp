@@ -50,6 +50,14 @@ https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/pipelines/2977052614):
   development). So `setup` writes `& ^ % !` in the VS Code JSON as `\u0026`
   etc., and for a path with `%` it prints `claude mcp add-json` with the same
   escaping (checked on Linux that Claude Code 2.1.308 stores the decoded path).
+- A `%` in the project path has a second, separate limit that quoting cannot
+  fix: npm itself exits with `npm error URI malformed` when `npx` is started
+  with such a folder as its working directory. Measured on Linux: npm 10.8.2
+  (Node 20) and 10.8.3 fail, npm 10.9.9 (Node 22) works; the same folder passed
+  as an argument from another working directory works. The Windows result is
+  in the `INFO npm …` line of each Windows job. Which working directory each
+  client uses for the server was not measured, so `setup` prints a note for
+  paths with `%`.
 - Not tested on Windows: the real VS Code, Claude Code, Cursor, Windsurf and
   Claude Desktop apps.
 

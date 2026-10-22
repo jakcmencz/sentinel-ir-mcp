@@ -123,6 +123,14 @@ function describePlan(client, plan, project) {
     return lines.join("\n") + "\n";
 }
 
+function percentNote(project) {
+    return project.includes("%")
+        ? "Note: this folder path contains %. npm 10.8 (measured: 10.8.2, 10.8.3) fails with \"npm error URI malformed\" " +
+          "when npx is started inside such a folder; npm 10.9.9 works. If the client reports that error, update npm " +
+          "or use a folder without % in its path.\n"
+        : "";
+}
+
 async function runSetup(opts, io) {
     const out = (s) => io.stdout.write(s);
     const err = (s) => io.stderr.write(s);
@@ -153,6 +161,7 @@ async function runSetup(opts, io) {
             }
             out(`Access: ${project} (only this folder, read-only)\n`);
             out(`Then check the connection: npx -y ${PACKAGE_SPEC} doctor --project ${project}\n`);
+            out(percentNote(project));
             return 0;
         }
 
@@ -165,6 +174,7 @@ async function runSetup(opts, io) {
         const seed = !opts.config && spec.legacyConfigPath ? spec.legacyConfigPath(ctx) : null;
         const plan = planFileChange(file, serverEntry(folder, io.platform), seed);
         out(describePlan(client, plan, project));
+        out(percentNote(project));
 
         if (plan.action === "unchanged") {
             out("Already set up. Nothing was written.\n");
