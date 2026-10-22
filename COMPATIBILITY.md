@@ -21,7 +21,11 @@ does not prove that the app itself connected.
 
 ## Windows (GitLab hosted runner, Windows Server 2022, no client apps)
 
-Node 20.20.2, 22.23.4, 24.22.1:
+Node 20.20.2, 22.23.4, 24.22.1 (job `windows_compat`, e.g. pipeline
+https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/pipelines/2977052614):
+
+- The full test suite: 55 passed, 1 skipped (the `chmod 000` test; Windows has
+  no such permission bits).
 
 - `setup` + `doctor` from the packed package for Claude Desktop
   (`%APPDATA%\Claude\claude_desktop_config.json`), Cursor and Windsurf, with a
