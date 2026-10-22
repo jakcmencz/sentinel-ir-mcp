@@ -126,7 +126,7 @@ function describePlan(client, plan, project) {
 function percentNote(project) {
     return project.includes("%")
         ? "Note: this folder path contains %. npm 10.8 (measured: 10.8.2, 10.8.3) fails with \"npm error URI malformed\" " +
-          "when npx is started inside such a folder; npm 10.9.9 works. If the client reports that error, update npm " +
+          "when npx is started inside such a folder; npm 10.9.9 and 11.19.1 work. If the client reports that error, update npm " +
           "or use a folder without % in its path.\n"
         : "";
 }

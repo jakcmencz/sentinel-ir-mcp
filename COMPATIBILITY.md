@@ -54,8 +54,10 @@ https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/pipelines/2977052614):
   fix: npm itself exits with `npm error URI malformed` when `npx` is started
   with such a folder as its working directory. Measured on Linux: npm 10.8.2
   (Node 20) and 10.8.3 fail, npm 10.9.9 (Node 22) works; the same folder passed
-  as an argument from another working directory works. The Windows result is
-  in the `INFO npm …` line of each Windows job. Which working directory each
+  as an argument from another working directory works. Measured on the
+  Windows runner (pipeline 2977276529, `cmd /c npx`): npm 10.8.2 (Node 20.20.2)
+  fails, npm 10.9.9 (Node 22.23.4) and 11.19.1 (Node 24.22.1) work; the
+  `INFO npm …` line of each Windows job repeats it. Which working directory each
   client uses for the server was not measured, so `setup` prints a note for
   paths with `%`.
 - Not tested on Windows: the real VS Code, Claude Code, Cursor, Windsurf and
