@@ -61,9 +61,71 @@ files, as above.
 Requires Node.js 20 or newer. `npx` downloads and runs the server; there is
 nothing to compile (the parser is WebAssembly).
 
+### Quick setup (since 0.2.2)
+
+Run it in your project folder:
+
+```bash
+npx -y sentinel-ir-mcp@0.2 setup --client cursor     # or windsurf, claude-desktop, vscode, claude-code
+npx -y sentinel-ir-mcp@0.2 doctor --client cursor    # after restarting the client
+npx -y sentinel-ir-mcp@0.2 guide                     # optional: text for AGENTS.md / client rules
+```
+
+`setup` (without `--client` it asks which client):
+
+- shows the change first and writes only after you confirm (or with `--yes`);
+  `--dry-run` shows the change and writes nothing;
+- adds or replaces only the `"sentinel-ir"` entry; other servers and other
+  fields in the file stay as they are, and running it again changes nothing;
+- copies the old file to `<file>.bak-<timestamp>` before writing and writes
+  through a temporary file plus rename; a file with invalid JSON is never
+  touched;
+- gives the agent one folder (`--project`, default: the current folder) and
+  refuses your home folder or a whole disk;
+- writes `sentinel-ir-mcp@0.2`, so clients get 0.2.x fixes but no unexpected
+  new major features;
+- for VS Code and Claude Code it writes nothing and prints their own install
+  command (`code --add-mcp ...`, `claude mcp add ...`) instead.
+
+| `--client` | file written by `setup` |
+|---|---|
+| `cursor` | `<project>/.cursor/mcp.json` with `${workspaceFolder}`; `--global`: `~/.cursor/mcp.json` with the absolute path |
+| `windsurf` | `~/.codeium/windsurf/mcp_config.json` |
+| `claude-desktop` | macOS `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows `%APPDATA%\Claude\claude_desktop_config.json`; elsewhere pass `--config <file>` |
+| `vscode`, `claude-code` | nothing; prints the command to run |
+
+`doctor` checks Node.js, the package version, the client config (valid JSON, a
+`"sentinel-ir"` entry that starts `sentinel-ir-mcp`, existing folders), then
+starts **its own** server with the same folders, performs a real MCP
+handshake, expects exactly the three tools and calls `analyze_directory` with
+`max_files: 1`. It never runs the command stored in the client config. Exit
+code 0 when everything passes, 1 otherwise; `--json` gives a machine-readable
+report.
+
+Only `setup` writes files, and only the client config. The MCP server itself
+stays read-only.
+
+A folder that is literally named `setup`, `doctor` or `guide` must now be
+passed as `./setup` (or an absolute path); the bare word is the command.
+
+### One-click install links
+
+These links follow the Cursor and VS Code documentation. They were generated
+and decoded in tests but not clicked in the real apps. A link cannot know your
+project path, so it uses `${workspaceFolder}`; if your client does not expand
+it, use `setup` instead.
+
+- Cursor: [Install in Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=sentinel-ir&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNlbnRpbmVsLWlyLW1jcEAwLjIiLCIke3dvcmtzcGFjZUZvbGRlcn0iXX0=)
+- VS Code: [Install in VS Code](vscode:mcp/install?%7B%22name%22%3A%22sentinel-ir%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22sentinel-ir-mcp%400.2%22%2C%22%24%7BworkspaceFolder%7D%22%5D%7D)
+
+Some sites (including GitLab and npm) may not open `cursor://` or `vscode:`
+links; copy the link into the browser address bar or use `setup`.
+
+### Manual setup
+
 Pass the folder(s) the agent may read as arguments. Use absolute paths.
 
-### Claude Desktop
+#### Claude Desktop
 
 Settings → Developer → Edit Config opens `claude_desktop_config.json`
 (macOS: `~/Library/Application Support/Claude/`, Windows: `%APPDATA%\Claude\`):
@@ -73,7 +135,7 @@ Settings → Developer → Edit Config opens `claude_desktop_config.json`
   "mcpServers": {
     "sentinel-ir": {
       "command": "npx",
-      "args": ["-y", "sentinel-ir-mcp", "/Users/you/projects/my-app"]
+      "args": ["-y", "sentinel-ir-mcp@0.2", "/Users/you/projects/my-app"]
     }
   }
 }
@@ -81,7 +143,7 @@ Settings → Developer → Edit Config opens `claude_desktop_config.json`
 
 Restart Claude Desktop afterwards.
 
-### Cursor
+#### Cursor
 
 Project `.cursor/mcp.json` (or `~/.cursor/mcp.json` for all projects).
 `${workspaceFolder}` is the folder that contains `.cursor/mcp.json`:
@@ -91,21 +153,21 @@ Project `.cursor/mcp.json` (or `~/.cursor/mcp.json` for all projects).
   "mcpServers": {
     "sentinel-ir": {
       "command": "npx",
-      "args": ["-y", "sentinel-ir-mcp", "${workspaceFolder}"]
+      "args": ["-y", "sentinel-ir-mcp@0.2", "${workspaceFolder}"]
     }
   }
 }
 ```
 
-### Windsurf
+#### Windsurf
 
 Cascade panel → `...` → *Open MCP config file* (`mcp_config.json`), then add
 the same entry as for Claude Desktop with your project's absolute path.
 
-### Other clients
+#### Other clients
 
 Any MCP client that starts stdio servers works with
-`command: "npx"`, `args: ["-y", "sentinel-ir-mcp", "<folder>"]`.
+`command: "npx"`, `args: ["-y", "sentinel-ir-mcp@0.2", "<folder>"]`.
 Without folder arguments the server uses the client's
 [MCP roots](https://modelcontextprotocol.io/specification/latest/client/roots)
 if the client offers them; if it offers none, only `analyze_code` works.
@@ -121,8 +183,9 @@ sentinel-ir-mcp [--max-file-bytes <n>] [--max-files <n>] [folder ...]
 
 ## What the server can and cannot do
 
-- **Reads only.** It never writes files, runs commands or opens network
-  connections. The only files it opens are `.js`/`.mjs`/`.cjs`/`.ts`/`.mts`/`.cts`/`.tsx` files up to
+- **Reads only.** The MCP server never writes files, runs commands or opens
+  network connections (only the separate `setup` command writes, and only the
+  client config file you confirm; `doctor` starts this package's own server). The only files it opens are `.js`/`.mjs`/`.cjs`/`.ts`/`.mts`/`.cts`/`.tsx` files up to
   `--max-file-bytes`.
 - **Only inside the allowed folders.** Every path is resolved to its real path
   (symlinks followed) and must lie inside a folder given on the command line,
@@ -178,6 +241,11 @@ npm test        # starts the real server over stdio and talks to it with the MCP
 Tests cover the tool list and annotations, all three tools, refusals for
 `../`, absolute paths, symlinks out of the folder, unsupported file types and
 size limits, MCP roots from the client, and the command-line options.
+`setup`/`doctor` tests run against temporary `HOME`/`APPDATA` folders: new
+file, keeping other servers and fields, backup, idempotent second run, invalid
+JSON left untouched, `--dry-run`, refused home/root folders, symlinked config,
+Claude Desktop macOS/Windows paths (simulated, not run on those systems), a
+real MCP handshake, failing configs and old Node.js.
 
 Release: bump `version` in `package.json`, push a protected tag `vX.Y.Z`;
 GitLab CI tests and publishes to npm with provenance.
