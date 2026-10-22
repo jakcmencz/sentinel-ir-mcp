@@ -63,7 +63,29 @@ https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/pipelines/2977052614):
 - Not tested on Windows: the real VS Code, Claude Code, Cursor, Windsurf and
   Claude Desktop apps.
 
-## macOS
+## macOS (Devin macOS VM, no account signed in)
 
-Not tested. GitLab's hosted macOS runners need a paid plan. The macOS config
-paths are covered only by tests with a simulated home folder.
+Measured once on 2026-10-22 on macOS 26.6.2 (build 25G83), arm64 (Apple M4 Pro,
+virtual machine), branch commit `d6119a5`. Not in CI: GitLab's hosted macOS
+runners need a paid plan.
+
+- `npm test`: 56/56 on Node 20.20.2, 22.23.4 and 24.22.1.
+- `scripts/compat-smoke.js`: all steps pass on all three (real
+  `~/Library/Application Support/Claude`, `~/.cursor`, `~/.config/devin`).
+  `npx` inside a folder with `%`: fails on npm 10.8.2 (Node 20), works on
+  10.9.9 and 11.19.1.
+- Apps (the configs start the published server, serverInfo 0.2.2):
+
+| App | Version | Configured by | Result |
+|---|---|---|---|
+| VS Code | 1.143.0 | printed `code --add-mcp` in zsh, folders `my project` and `it's $HOME & 100% (x)` | Running, log `Discovered 3 tools`, stored path exact for both |
+| Claude Code | 2.1.308 | printed `claude mcp add` in zsh, same two folders | `claude mcp list` / `get`: `✔ Connected`, exact path |
+| Cursor | 3.27.6 | README deeplink (user `~/.cursor/mcp.json`) | log `tools=3, status=connected`; UI behind login |
+| Cursor | 3.27.6 | `setup --yes` (project `.cursor/mcp.json`) | entry detected but stayed `disconnected` (`enabledTotal 0`); cause not verified (settings UI is behind login) |
+| Devin Desktop (Windsurf) | 3.10.67 | `setup --yes` → `~/.config/devin/mcp_config.json` | the bundled `devin mcp get sentinel-ir` CLI reads the entry; app stops at sign-in |
+| Claude Desktop | 3.6556.1 | `setup --yes` | stops at sign-in; no server started, `mcp.log` empty |
+
+- Legacy Windsurf migration: the new file got both servers, the old file kept
+  the same SHA-256; `doctor --client windsurf` ok.
+- Not verified on macOS: any tool call by an agent, Cursor / Devin Desktop /
+  Claude Desktop MCP state in their UI, Intel Macs, other macOS versions.
