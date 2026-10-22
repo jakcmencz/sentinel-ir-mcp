@@ -291,7 +291,13 @@ test("Windows (simulated): file entries use cmd /c npx; printed Claude Code comm
         fs.mkdirSync(amp);
         const vsAmp = await setup(sb, ["--client", "vscode", "--project", amp], win);
         assert.equal(vsAmp.code, 0);
-        assert.doesNotMatch(vsAmp.stdout, /code --/);
-        assert.ok(vsAmp.stdout.includes(installLinks().vscode));
+        const lines = vsAmp.stdout.split("\n").filter((l) => l.includes("--add-mcp"));
+        assert.equal(lines.length, 2);
+        for (const line of lines) {
+            assert.ok(!line.includes("&") && line.includes("\\u0026"), line);
+            const arg = line.slice(line.indexOf("--add-mcp ") + 10).trim();
+            const config = JSON.parse(JSON.parse(arg));
+            assert.equal(config.args[2], amp);
+        }
     } finally { sb.cleanup(); }
 });

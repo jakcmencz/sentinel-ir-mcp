@@ -3,7 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { isDeepStrictEqual } = require("util");
-const { SERVER_NAME, PACKAGE_SPEC, CLIENTS, homeOf, serverEntry, installCommand, installLinks } = require("./clients");
+const { SERVER_NAME, PACKAGE_SPEC, CLIENTS, homeOf, serverEntry, installCommand } = require("./clients");
 
 class SetupError extends Error {}
 
@@ -145,10 +145,7 @@ async function runSetup(opts, io) {
 
         if (spec.kind === "command") {
             if (opts.config) throw new SetupError(`--config does not apply to ${spec.label}; it installs servers with its own command.`);
-            if (io.platform === "win32" && installCommand(client, project, "win32") === null) {
-                out(`The folder path contains & | < > ^ % or !, which Windows changes when passed to ${spec.label}'s command line. Nothing was written.\n` +
-                    `Open ${spec.label} in the project and use its install link instead (it uses \${workspaceFolder}):\n\n  ${installLinks().vscode}\n\n`);
-            } else if (io.platform === "win32") {
+            if (io.platform === "win32") {
                 out(`${spec.label} adds MCP servers with its own command. Nothing was written. Run in PowerShell:\n\n  ${installCommand(client, project, "win32", "powershell")}\n\n` +
                     `or in Command Prompt (cmd.exe):\n\n  ${installCommand(client, project, "win32", "cmd")}\n\n`);
             } else {

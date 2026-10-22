@@ -41,10 +41,12 @@ https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/pipelines/2977052614):
 - The commands `setup` prints for VS Code and Claude Code, pasted into
   PowerShell 5.1, PowerShell 7.4 and cmd.exe, reach a `.cmd` shim (like
   `code.cmd`/`claude.cmd`) with exactly the intended arguments, for a path with
-  a space and for a path with `'`, `$` and `&`. Checked on every pipeline by
-  `scripts/win-quote-probe.js`. Exception: for VS Code, a path containing
-  `& | < > ^ % !` was changed by cmd.exe inside the JSON in every shell, so
-  for such paths `setup` prints the VS Code install link instead of a command.
+  a space and for paths with `' $ & ^ % ! ( ) ; @` and a backtick (`< > | "`
+  cannot be in Windows file names). Checked on every pipeline by
+  `scripts/win-quote-probe.js`; for VS Code the received value is compared
+  after JSON parsing, as VS Code reads it. Without escaping, `&` in the path
+  broke the VS Code command in all three shells (measured in 0.2.3
+  development), so `setup` writes `& ^ % !` in that JSON as `\u0026` etc.
 - Not tested on Windows: the real VS Code, Claude Code, Cursor, Windsurf and
   Claude Desktop apps.
 

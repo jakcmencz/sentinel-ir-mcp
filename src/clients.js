@@ -96,10 +96,10 @@ function installCommand(client, project, platform = process.platform, shell = "p
     const win = platform === "win32";
     if (client === "vscode") {
         if (!win) return `code --add-mcp ${shellQuote(json)}`;
-        // code.cmd re-reads its arguments through cmd.exe, which changes these
-        // characters inside the JSON (measured); callers offer the install link.
-        if (/[&|<>^%!]/.test(project)) return null;
-        return `code ${shell === "cmd" ? "" : "--% "}--add-mcp ${windowsArgQuote(json)}`;
+        // code.cmd re-reads its arguments through cmd.exe, which acts on these
+        // characters (measured with "&"); JSON \u escapes keep them out of the line.
+        const safe = json.replace(/[&|<>^%!]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+        return `code ${shell === "cmd" ? "" : "--% "}--add-mcp ${windowsArgQuote(safe)}`;
     }
     if (client === "claude-code") {
         const folder = !win ? shellQuote(project) : shell !== "cmd" && /[$`]/.test(project) ? powershellQuote(project) : `"${project}"`;

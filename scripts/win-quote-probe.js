@@ -16,17 +16,25 @@ for (const name of ["code", "claude"]) fs.writeFileSync(path.join(dir, `${name}.
 const env = { ...process.env, Path: `${dir};${process.env.Path || process.env.PATH}` };
 
 const { installCommand } = require("../src/clients");
-const projects = [project, path.join(dir, "it's $HOME & co")];
-fs.mkdirSync(projects[1]);
-const expected = (tool, folder) => tool === "vscode"
-    ? ["--add-mcp", JSON.stringify({ name: "sentinel-ir", type: "stdio", command: "npx", args: ["-y", "sentinel-ir-mcp@0.2", folder] })]
-    : ["mcp", "add", "--transport", "stdio", "sentinel-ir", "--", "cmd", "/c", "npx", "-y", "sentinel-ir-mcp@0.2", folder];
+// Windows names cannot contain < > | " so these cover the remaining cmd.exe/PowerShell specials.
+const projects = [project, ...["it's $HOME & co", "100% ^caret! (x)", "a %OS% b", "x`y; @z"].map((n) => path.join(dir, n))];
+for (const p of projects.slice(1)) fs.mkdirSync(p);
+// VS Code parses the --add-mcp value as JSON, so compare the parsed value.
+const matches = (tool, folder, argv) => tool === "vscode"
+    ? Array.isArray(argv) && argv.length === 2 && argv[0] === "--add-mcp" && (() => {
+        try {
+            return JSON.stringify(JSON.parse(argv[1])) === JSON.stringify({ name: "sentinel-ir", type: "stdio", command: "npx", args: ["-y", "sentinel-ir-mcp@0.2", folder] });
+        } catch { return false; }
+    })()
+    : JSON.stringify(argv) === JSON.stringify(["mcp", "add", "--transport", "stdio", "sentinel-ir", "--", "cmd", "/c", "npx", "-y", "sentinel-ir-mcp@0.2", folder]);
 
 const shells = [];
 const has = (exe) => spawnSync("where", [exe], { encoding: "utf8" }).status === 0;
 if (has("powershell.exe")) shells.push({ name: "powershell5", run: (f) => spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", f], { env, encoding: "utf8" }), ext: ".ps1" });
 if (has("pwsh.exe")) shells.push({ name: "pwsh7", run: (f) => spawnSync("pwsh.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", f], { env, encoding: "utf8" }), ext: ".ps1" });
-shells.push({ name: "cmd", run: (f) => spawnSync("cmd.exe", ["/d", "/c", f], { env, encoding: "utf8" }), ext: ".cmd" });
+// A command line given to cmd /c is parsed like a line typed at the prompt
+// (unlike a .cmd file, where a lone % is dropped).
+shells.push({ name: "cmd", run: (line) => spawnSync("cmd.exe", ["/d", "/s", "/c", `"${line}"`], { env, encoding: "utf8", windowsVerbatimArguments: true }), line: true });
 
 const results = [];
 for (const shell of shells) {
@@ -38,15 +46,10 @@ for (const shell of shells) {
     for (const folder of projects) {
         for (const [tool, client] of [["vscode", "vscode"], ["claude", "claude-code"]]) {
             const line = installCommand(client, folder, "win32", kind);
-            if (line === null) {
-                results.push({ shell: shell.name, tool, folder, ok: true, note: "no command printed; setup prints the install link" });
-                console.log(`SKIP ${shell.name} ${tool} [${path.basename(folder)}]: setup prints the install link instead`);
-                continue;
-            }
-            const r = shell.run(writeScript(shell.ext === ".cmd" ? `@${line}` : line, shell.ext));
+            const r = shell.run(shell.line ? line : writeScript(line, shell.ext));
             let got;
             try { got = JSON.parse(r.stdout); } catch { got = { stdout: r.stdout, stderr: r.stderr }; }
-            const ok = JSON.stringify(got) === JSON.stringify(expected(tool, folder));
+            const ok = matches(tool, folder, got);
             results.push({ shell: shell.name, tool, folder, line, ok, got: ok ? undefined : got });
             console.log(`${ok ? "OK  " : "BAD "} ${shell.name} ${tool} [${path.basename(folder)}]: ${line}${ok ? "" : ` -> ${JSON.stringify(got).slice(0, 300)}`}`);
         }
