@@ -9,6 +9,7 @@ const path = require("path");
 const { execSync, spawn } = require("child_process");
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
+const { CLIENTS } = require("../src/clients");
 
 const ROOT = path.join(__dirname, "..");
 const report = { platform: process.platform, release: os.release(), node: process.version, steps: [] };
@@ -65,6 +66,15 @@ async function handshake(command, args, cwd) {
     step("tarball version", true, cli("--version").out.trim());
 
     const clients = ["win32", "darwin"].includes(process.platform) ? ["claude-desktop", "cursor", "windsurf"] : ["cursor", "windsurf"];
+    // setup writes the real per-user config files; put them back afterwards so a
+    // run on a desktop machine leaves no entry pointing at the deleted temp folder.
+    const saved = clients.map((c) => CLIENTS[c].configPath({ project, global: false, env: process.env, platform: process.platform }))
+        .filter((f) => f && !f.startsWith(base))
+        .map((file) => ({
+            file,
+            content: fs.existsSync(file) ? fs.readFileSync(file) : null,
+            siblings: fs.existsSync(path.dirname(file)) ? fs.readdirSync(path.dirname(file)) : []
+        }));
     for (const client of clients) {
         const s = cli(`setup --client ${client} --yes`);
         const file = (s.out.match(/^Config: +(.+?)(?: \(new file\))?$/m) || [])[1];
@@ -103,6 +113,24 @@ async function handshake(command, args, cwd) {
         ? await handshake("cmd", ["/c", "npx", ...pctArgs], base)
         : await handshake("npx", pctArgs, base);
     console.log("INFO npx started elsewhere, folder argument contains %:", JSON.stringify(report.npxArgPercent));
+
+    if (process.platform === "win32") {
+        const envVar = path.join(base, "a %OS% b");
+        fs.mkdirSync(envVar);
+        fs.copyFileSync(path.join(project, "run.js"), path.join(envVar, "run.js"));
+        report.cmdEnvVarInFolder = await handshake("cmd", ["/c", "npx", "-y", "sentinel-ir-mcp@0.2", envVar], base);
+        console.log("INFO cmd /c npx, folder argument contains %OS%:", JSON.stringify(report.cmdEnvVarInFolder));
+    }
+
+    for (const { file, content, siblings } of saved) {
+        if (content === null) fs.rmSync(file, { force: true });
+        else fs.writeFileSync(file, content);
+        for (const name of fs.existsSync(path.dirname(file)) ? fs.readdirSync(path.dirname(file)) : []) {
+            if (!siblings.includes(name) && name.startsWith(`${path.basename(file)}.`)) fs.rmSync(path.join(path.dirname(file), name), { force: true });
+        }
+    }
+    step("real client config files restored", saved.every(({ file, content }) =>
+        content === null ? !fs.existsSync(file) : fs.readFileSync(file).equals(content)), saved.map((x) => x.file));
 
     const out = path.join(ROOT, `compat-${process.platform}-node${process.versions.node.split(".")[0]}.json`);
     fs.writeFileSync(out, JSON.stringify(report, null, 2));

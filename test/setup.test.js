@@ -283,7 +283,8 @@ test("Windows (simulated): file entries use cmd /c npx; printed Claude Code comm
         const cc = await setup(sb, ["--client", "claude-code"], win);
         assert.equal(cc.code, 0);
         assert.match(cc.stdout, /in PowerShell:[\s\S]*in Command Prompt/);
-        assert.ok(cc.stdout.includes(`claude mcp add --transport stdio sentinel-ir -- cmd /c npx -y sentinel-ir-mcp@0.2 "${sb.project}"`));
+        assert.ok(cc.stdout.includes(`claude mcp add --transport stdio sentinel-ir '--' cmd /c npx -y sentinel-ir-mcp@0.2 '${sb.project}'`), cc.stdout);
+        assert.ok(cc.stdout.includes(`claude mcp add --transport stdio sentinel-ir -- cmd /c npx -y sentinel-ir-mcp@0.2 "${sb.project}"`), cc.stdout);
         const vs = await setup(sb, ["--client", "vscode"], win);
         assert.ok(vs.stdout.includes("code --% --add-mcp \"{\\\"name\\\":"), vs.stdout);
         assert.ok(vs.stdout.includes("code --add-mcp \"{\\\"name\\\":"), vs.stdout);
@@ -304,12 +305,11 @@ test("Windows (simulated): file entries use cmd /c npx; printed Claude Code comm
         const ccPct = await setup(sb, ["--client", "claude-code", "--project", pct], win);
         const ccLines = ccPct.stdout.split("\n").filter((l) => l.includes("claude mcp"));
         assert.equal(ccLines.length, 2);
-        for (const line of ccLines) {
-            assert.match(line, /claude mcp add-json (--% )?sentinel-ir "/);
-            assert.ok(!line.includes("%OS%"), line);
-            const config = JSON.parse(windowsArgUnquote(line.slice(line.indexOf(" sentinel-ir ") + 13).trim()));
-            assert.deepEqual(config, { type: "stdio", command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.2", pct] });
-        }
+        assert.ok(ccLines[0].includes(`claude mcp add --transport stdio sentinel-ir '--' cmd /c npx -y sentinel-ir-mcp@0.2 '${pct}'`), ccLines[0]);
+        assert.match(ccLines[1], /claude mcp add-json sentinel-ir "/);
+        assert.ok(!ccLines[1].includes("%OS%"), ccLines[1]);
+        const config = JSON.parse(windowsArgUnquote(ccLines[1].slice(ccLines[1].indexOf(" sentinel-ir ") + 13).trim()));
+        assert.deepEqual(config, { type: "stdio", command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.2", pct] });
         assert.match(ccPct.stdout, /contains %\. npm 10\.8 .*URI malformed/);
         const filePct = await setup(sb, ["--client", "cursor", "--project", pct, "--dry-run"], win);
         assert.match(filePct.stdout, /URI malformed/);

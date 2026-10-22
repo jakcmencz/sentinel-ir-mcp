@@ -12,8 +12,24 @@ const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "quote-probe-"
 const project = path.join(dir, "my project");
 fs.mkdirSync(project);
 fs.writeFileSync(path.join(dir, "argv.js"), "process.stdout.write(JSON.stringify(process.argv.slice(2)))");
-for (const name of ["code", "claude"]) fs.writeFileSync(path.join(dir, `${name}.cmd`), `@node "%~dp0argv.js" %*\r\n`);
-const env = { ...process.env, Path: `${dir};${process.env.Path || process.env.PATH}` };
+fs.writeFileSync(path.join(dir, "code.cmd"), `@node "%~dp0argv.js" %*\r\n`);
+// How `claude` can resolve: npm global install (claude.ps1 next to claude.cmd;
+// PowerShell picks the .ps1), cmd.exe on the same install (claude.cmd), and the
+// native installer (claude.exe; here a copy of node.exe whose preload prints argv).
+const shim = (name) => { const d = path.join(dir, `shim-${name}`); fs.mkdirSync(d); return d; };
+const npmShim = shim("npm");
+fs.writeFileSync(path.join(npmShim, "claude.cmd"), `@node "%~dp0..\\argv.js" %*\r\n`);
+fs.writeFileSync(path.join(npmShim, "claude.ps1"), `$basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent\r\n& "${process.execPath}" "$basedir\\..\\argv.js" $args\r\nexit $LASTEXITCODE\r\n`);
+const exeShim = shim("exe");
+fs.copyFileSync(process.execPath, path.join(exeShim, "claude.exe"));
+fs.writeFileSync(path.join(dir, "pre.js"), "const a = process.argv.slice(1); a[0] = require('path').basename(a[0]); process.stdout.write(JSON.stringify(a)); process.exit(0);");
+const basePath = `${dir};${process.env.Path || process.env.PATH}`;
+const envFor = (shimDir, extra = {}) => { const e = { ...process.env, ...extra, Path: `${shimDir};${basePath}` }; delete e.PATH; return e; };
+const claudeVariants = [
+    { name: "claude(npm)", env: envFor(npmShim) },
+    { name: "claude(exe)", env: envFor(exeShim, { NODE_OPTIONS: `--require "${path.join(dir, "pre.js")}"` }) }
+];
+const env = envFor(npmShim);
 
 const { installCommand } = require("../src/clients");
 // Windows names cannot contain < > | " so these cover the remaining cmd.exe/PowerShell specials.
@@ -36,11 +52,11 @@ const matches = (tool, folder, argv) => tool === "vscode"
 
 const shells = [];
 const has = (exe) => spawnSync("where", [exe], { encoding: "utf8" }).status === 0;
-if (has("powershell.exe")) shells.push({ name: "powershell5", run: (f) => spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", f], { env, encoding: "utf8" }), ext: ".ps1" });
-if (has("pwsh.exe")) shells.push({ name: "pwsh7", run: (f) => spawnSync("pwsh.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", f], { env, encoding: "utf8" }), ext: ".ps1" });
+if (has("powershell.exe")) shells.push({ name: "powershell5", run: (f, e = env) => spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", f], { env: e, encoding: "utf8" }), ext: ".ps1" });
+if (has("pwsh.exe")) shells.push({ name: "pwsh7", run: (f, e = env) => spawnSync("pwsh.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", f], { env: e, encoding: "utf8" }), ext: ".ps1" });
 // A command line given to cmd /c is parsed like a line typed at the prompt
 // (unlike a .cmd file, where a lone % is dropped).
-shells.push({ name: "cmd", run: (line) => spawnSync("cmd.exe", ["/d", "/s", "/c", `"${line}"`], { env, encoding: "utf8", windowsVerbatimArguments: true }), line: true });
+shells.push({ name: "cmd", run: (line, e = env) => spawnSync("cmd.exe", ["/d", "/s", "/c", `"${line}"`], { env: e, encoding: "utf8", windowsVerbatimArguments: true }), line: true });
 
 const results = [];
 for (const shell of shells) {
@@ -50,14 +66,14 @@ for (const shell of shells) {
     }
     const kind = shell.name === "cmd" ? "cmd" : "powershell";
     for (const folder of projects) {
-        for (const [tool, client] of [["vscode", "vscode"], ["claude", "claude-code"]]) {
+        for (const [tool, client, variant] of [["vscode", "vscode", { name: "vscode", env }], ...claudeVariants.map((v) => ["claude", "claude-code", v])]) {
             const line = installCommand(client, folder, "win32", kind);
-            const r = shell.run(shell.line ? line : writeScript(line, shell.ext));
+            const r = shell.run(shell.line ? line : writeScript(line, shell.ext), variant.env);
             let got;
             try { got = JSON.parse(r.stdout); } catch { got = { stdout: r.stdout, stderr: r.stderr }; }
             const ok = matches(tool, folder, got);
-            results.push({ shell: shell.name, tool, folder, line, ok, got: ok ? undefined : got });
-            console.log(`${ok ? "OK  " : "BAD "} ${shell.name} ${tool} [${path.basename(folder)}]: ${line}${ok ? "" : ` -> ${JSON.stringify(got).slice(0, 300)}`}`);
+            results.push({ shell: shell.name, tool: variant.name, folder, line, ok, got: ok ? undefined : got });
+            console.log(`${ok ? "OK  " : "BAD "} ${shell.name} ${variant.name} [${path.basename(folder)}]: ${line}${ok ? "" : ` -> ${JSON.stringify(got).slice(0, 300)}`}`);
         }
     }
 }

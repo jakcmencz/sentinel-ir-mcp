@@ -106,12 +106,15 @@ function installCommand(client, project, platform = process.platform, shell = "p
         return `code ${shell === "cmd" ? "" : "--% "}--add-mcp ${windowsArgQuote(cmdSafeJson(vscodeConfig(project)))}`;
     }
     if (client === "claude-code") {
+        if (win && shell !== "cmd") {
+            // PowerShell prefers npm's claude.ps1 shim: a script gets `--` only when quoted, and --% does not apply to it.
+            return `claude mcp add --transport stdio ${SERVER_NAME} '--' cmd /c npx -y ${PACKAGE_SPEC} ${powershellQuote(project)}`;
+        }
         if (win && project.includes("%")) {
             const config = { type: "stdio", ...serverEntry(project, "win32") };
-            return `claude mcp add-json ${shell === "cmd" ? "" : "--% "}${SERVER_NAME} ${windowsArgQuote(cmdSafeJson(config))}`;
+            return `claude mcp add-json ${SERVER_NAME} ${windowsArgQuote(cmdSafeJson(config))}`;
         }
-        const folder = !win ? shellQuote(project) : shell !== "cmd" && /[$`]/.test(project) ? powershellQuote(project) : `"${project}"`;
-        return `claude mcp add --transport stdio ${SERVER_NAME} -- ${win ? "cmd /c npx" : "npx"} -y ${PACKAGE_SPEC} ${folder}`;
+        return `claude mcp add --transport stdio ${SERVER_NAME} -- ${win ? "cmd /c npx" : "npx"} -y ${PACKAGE_SPEC} ${win ? `"${project}"` : shellQuote(project)}`;
     }
     throw new Error(`No install command for ${client}`);
 }

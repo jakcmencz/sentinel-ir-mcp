@@ -39,8 +39,10 @@ https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/pipelines/2977052614):
   - MCP SDK client with `command: "cmd"`, `args: ["/c", "npx", ...]`:
     connected on all three. This is what `setup` writes on Windows since 0.2.3.
 - The commands `setup` prints for VS Code and Claude Code, pasted into
-  PowerShell 5.1, PowerShell 7.4 and cmd.exe, reach a `.cmd` shim (like
-  `code.cmd`/`claude.cmd`) with exactly the intended arguments, for a path with
+  PowerShell 5.1, PowerShell 7.4 and cmd.exe, reach the program with exactly
+  the intended arguments: `code.cmd` for VS Code; for Claude Code both npm's
+  `claude.ps1` + `claude.cmd` pair (PowerShell picks the `.ps1`) and a
+  `claude.exe` like the native installer's. This holds for a path with
   a space and for paths with `' $ & ^ % ! ( ) ; @` and a backtick (`< > | "`
   cannot be in Windows file names). Checked on every pipeline by
   `scripts/win-quote-probe.js`; for VS Code the received value is compared
@@ -60,8 +62,29 @@ https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/pipelines/2977052614):
   `INFO npm …` line of each Windows job repeats it. Which working directory each
   client uses for the server was not measured, so `setup` prints a note for
   paths with `%`.
-- Not tested on Windows: the real VS Code, Claude Code, Cursor, Windsurf and
-  Claude Desktop apps.
+- A path containing `%NAME%` where `NAME` is a set environment variable (for
+  example `%OS%`) is expanded by `cmd /c` when the client starts the server;
+  each Windows job measures this in the `INFO cmd /c npx, folder argument
+  contains %OS%` line.
+
+### Windows client apps (Devin Windows VM, no account signed in)
+
+Measured once on 2026-10-22 on Windows Server 2022 (build 10.0.20348.5622),
+AMD64, Windows PowerShell 5.1, Node 22.23.4 / npm 10.9.9. Folders: A =
+`C:\sentinel-test\my project`, B = `C:\sentinel-test\it's $HOME & 100% ^caret! (x)`.
+
+| App | Version | Configured with | Result |
+| --- | --- | --- | --- |
+| VS Code | 1.143.0 | printed command, PowerShell 5.1 (A, B) and cmd.exe (B) | *Running*, *Discovered 3 tools*; B stored unchanged |
+| Claude Code | 2.1.308 | printed cmd.exe command (A, B) | `claude mcp list`: `√ Connected`; B stored unchanged |
+| Claude Code | 2.1.308 | printed PowerShell command (A, B), branch before the fix | **failed**: `claude` resolved to `%APPDATA%\npm\claude.ps1`; PowerShell drops an unquoted `--` and ignores `--%` for a script (`unknown option '-y'`, `unknown option '--%'`). Since then the PowerShell line is `... '--' cmd /c npx ... '<folder>'`, checked by the probe above; not re-run in the app |
+| Cursor | 3.26.16 | README deeplink (user `~/.cursor/mcp.json`) | log: *Successfully connected to stdio server*, `tools=3` |
+| Cursor | 3.26.16 | `setup --client cursor --yes` (project `.cursor/mcp.json`) | entry listed but **disconnected**, server not started; cause not visible without signing in (same on macOS) |
+| Devin Desktop (Windsurf) | 3.10.67 | `setup --client windsurf --yes` | `%APPDATA%\devin\mcp_config.json` written, legacy copy works; app stops at sign-in, server start not observed |
+| Claude Desktop | 3.1623.4 | `setup --client claude-desktop --yes` | config written; app stops at sign-in, no MCP log |
+
+Not measured on Windows: tool calls from an app's agent, PowerShell 7 and the
+native `claude.exe` in a real app, the VS Code deeplink, arm64.
 
 ## macOS (Devin macOS VM, no account signed in)
 
