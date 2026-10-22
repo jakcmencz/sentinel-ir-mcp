@@ -63,9 +63,12 @@ https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/pipelines/2977052614):
   client uses for the server was not measured, so `setup` prints a note for
   paths with `%`.
 - A path containing `%NAME%` where `NAME` is a set environment variable (for
-  example `%OS%`) is expanded by `cmd /c` when the client starts the server;
-  each Windows job measures this in the `INFO cmd /c npx, folder argument
-  contains %OS%` line.
+  example `%OS%`) could be expanded by `cmd /c` when a client starts the
+  server. Measured once on the Devin Windows VM with the MCP SDK client
+  (`cross-spawn`): folder `a %OS% b` was passed unchanged (`ok:true`,
+  `run.js:critical`). How each desktop app spawns the command was not
+  measured. `compat-smoke` repeats this in the `INFO cmd /c npx, folder
+  argument contains %OS%` line.
 
 ### Windows client apps (Devin Windows VM, no account signed in)
 
@@ -77,14 +80,17 @@ AMD64, Windows PowerShell 5.1, Node 22.23.4 / npm 10.9.9. Folders: A =
 | --- | --- | --- | --- |
 | VS Code | 1.143.0 | printed command, PowerShell 5.1 (A, B) and cmd.exe (B) | *Running*, *Discovered 3 tools*; B stored unchanged |
 | Claude Code | 2.1.308 | printed cmd.exe command (A, B) | `claude mcp list`: `√ Connected`; B stored unchanged |
-| Claude Code | 2.1.308 | printed PowerShell command (A, B), branch before the fix | **failed**: `claude` resolved to `%APPDATA%\npm\claude.ps1`; PowerShell drops an unquoted `--` and ignores `--%` for a script (`unknown option '-y'`, `unknown option '--%'`). Since then the PowerShell line is `... '--' cmd /c npx ... '<folder>'`, checked by the probe above; not re-run in the app |
+| Claude Code | 2.1.308 | printed PowerShell command (A, B), commit `d6119a5` | **failed**: `claude` resolved to `%APPDATA%\npm\claude.ps1`; PowerShell drops an unquoted `--` and ignores `--%` for a script (`unknown option '-y'`, `unknown option '--%'`) |
+| Claude Code | 2.1.308 | printed PowerShell command `... '--' cmd /c npx ... '<folder>'`, commit `4e84797`: A and B in PowerShell 5.1, B in PowerShell 7.6.7 | `claude mcp list` / `get`: `√ Connected`; stored path equals the real path (case-sensitive) |
 | Cursor | 3.26.16 | README deeplink (user `~/.cursor/mcp.json`) | log: *Successfully connected to stdio server*, `tools=3` |
 | Cursor | 3.26.16 | `setup --client cursor --yes` (project `.cursor/mcp.json`) | entry listed but **disconnected**, server not started; cause not visible without signing in (same on macOS) |
 | Devin Desktop (Windsurf) | 3.10.67 | `setup --client windsurf --yes` | `%APPDATA%\devin\mcp_config.json` written, legacy copy works; app stops at sign-in, server start not observed |
 | Claude Desktop | 3.1623.4 | `setup --client claude-desktop --yes` | config written; app stops at sign-in, no MCP log |
 
-Not measured on Windows: tool calls from an app's agent, PowerShell 7 and the
-native `claude.exe` in a real app, the VS Code deeplink, arm64.
+Not measured on Windows: tool calls from an app's agent, the native
+`claude.exe` in a real app, folder A in PowerShell 7, the VS Code deeplink,
+arm64. The VS Code, Cursor, Devin and Claude Desktop rows are from commit
+`d6119a5`; their config output did not change afterwards.
 
 ## macOS (Devin macOS VM, no account signed in)
 

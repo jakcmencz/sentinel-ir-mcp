@@ -119,7 +119,7 @@ async function handshake(command, args, cwd) {
         fs.mkdirSync(envVar);
         fs.copyFileSync(path.join(project, "run.js"), path.join(envVar, "run.js"));
         report.cmdEnvVarInFolder = await handshake("cmd", ["/c", "npx", "-y", "sentinel-ir-mcp@0.2", envVar], base);
-        console.log("INFO cmd /c npx, folder argument contains %OS%:", JSON.stringify(report.cmdEnvVarInFolder));
+        console.log(`INFO cmd /c npx, folder argument contains %OS%: ${JSON.stringify(report.cmdEnvVarInFolder)}`);
     }
 
     for (const { file, content, siblings } of saved) {

@@ -27,7 +27,7 @@ const basePath = `${dir};${process.env.Path || process.env.PATH}`;
 const envFor = (shimDir, extra = {}) => { const e = { ...process.env, ...extra, Path: `${shimDir};${basePath}` }; delete e.PATH; return e; };
 const claudeVariants = [
     { name: "claude(npm)", env: envFor(npmShim) },
-    { name: "claude(exe)", env: envFor(exeShim, { NODE_OPTIONS: `--require "${path.join(dir, "pre.js")}"` }) }
+    { name: "claude(exe)", env: envFor(exeShim, { NODE_OPTIONS: `--require "${path.join(dir, "pre.js").replace(/\\/g, "/")}"` }) }
 ];
 const env = envFor(npmShim);
 
