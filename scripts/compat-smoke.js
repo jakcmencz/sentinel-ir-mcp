@@ -2,7 +2,7 @@
 
 // Real-OS smoke test (used by the Windows CI job): pack this checkout, install
 // the tarball, run setup/doctor against the real config locations, and
-// measure how a client can start `npx -y sentinel-ir-mcp@0.2` on this OS.
+// measure how a client can start `npx -y sentinel-ir-mcp@0.3` on this OS.
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -89,7 +89,7 @@ async function handshake(command, args, cwd) {
         step(`doctor ${client}`, d.code === 0 && r.ok === true, (r.checks || []).map((c) => `${c.status}:${c.id}`).join(" ") || r.raw);
     }
 
-    const args = ["-y", "sentinel-ir-mcp@0.2", project];
+    const args = ["-y", "sentinel-ir-mcp@0.3", project];
     report.rawSpawnNpx = await rawSpawn("npx", args);
     console.log("INFO raw spawn('npx', no shell):", JSON.stringify(report.rawSpawnNpx));
     report.sdkNpx = await handshake("npx", args, base);
@@ -98,13 +98,13 @@ async function handshake(command, args, cwd) {
         report.sdkCmdNpx = await handshake("cmd", ["/c", "npx", ...args], base);
         console.log("INFO MCP SDK client, command \"cmd /c npx\":", JSON.stringify(report.sdkCmdNpx));
     }
-    step("published sentinel-ir-mcp@0.2 starts through npx from an MCP SDK client", report.sdkNpx.ok || Boolean(report.sdkCmdNpx && report.sdkCmdNpx.ok), "see INFO lines");
+    step("published sentinel-ir-mcp@0.3 starts through npx from an MCP SDK client", report.sdkNpx.ok || Boolean(report.sdkCmdNpx && report.sdkCmdNpx.ok), "see INFO lines");
 
     report.npm = sh("npm -v", base).trim();
     const pct = path.join(base, "100% done");
     fs.mkdirSync(pct);
     fs.copyFileSync(path.join(project, "run.js"), path.join(pct, "run.js"));
-    const pctArgs = ["-y", "sentinel-ir-mcp@0.2", pct];
+    const pctArgs = ["-y", "sentinel-ir-mcp@0.3", pct];
     report.npxCwdPercent = process.platform === "win32"
         ? await handshake("cmd", ["/c", "npx", ...pctArgs], pct)
         : await handshake("npx", pctArgs, pct);
@@ -118,7 +118,7 @@ async function handshake(command, args, cwd) {
         const envVar = path.join(base, "a %OS% b");
         fs.mkdirSync(envVar);
         fs.copyFileSync(path.join(project, "run.js"), path.join(envVar, "run.js"));
-        report.cmdEnvVarInFolder = await handshake("cmd", ["/c", "npx", "-y", "sentinel-ir-mcp@0.2", envVar], base);
+        report.cmdEnvVarInFolder = await handshake("cmd", ["/c", "npx", "-y", "sentinel-ir-mcp@0.3", envVar], base);
         console.log(`INFO cmd /c npx, folder argument contains %OS%: ${JSON.stringify(report.cmdEnvVarInFolder)}`);
     }
 

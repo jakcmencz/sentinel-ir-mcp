@@ -5,7 +5,7 @@ const path = require("path");
 const { analyzeAsync, compress } = require("sentinel-ir");
 const { AccessError, resolveInside, isSourceFile } = require("./paths");
 
-const SKIP_DIRS = new Set(["node_modules", ".git"]);
+const SKIP_DIRS = new Set(["node_modules", ".git", "__pycache__", "venv", "site-packages"]);
 const RISK_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
 
 async function analyzeCode(code, target, language) {
@@ -21,7 +21,7 @@ async function analyzeFile(requested, roots, { maxFileBytes }) {
     const stat = await fs.stat(real);
     if (!stat.isFile()) throw new AccessError(`Not a file: ${requested}`);
     if (!isSourceFile(real)) {
-        throw new AccessError(`Unsupported file type: ${requested} (only .js, .mjs, .cjs, .ts, .mts, .cts and .tsx)`);
+        throw new AccessError(`Unsupported file type: ${requested} (only .js, .mjs, .cjs, .ts, .mts, .cts, .tsx, .py and .pyi)`);
     }
     if (stat.size > maxFileBytes) {
         throw new AccessError(`File too large: ${requested} is ${stat.size} bytes, limit is ${maxFileBytes}`);
@@ -30,8 +30,8 @@ async function analyzeFile(requested, roots, { maxFileBytes }) {
     return analyzeCode(code, display);
 }
 
-// Breadth-first, sorted walk. Symlinks are never followed; node_modules, .git
-// and hidden folders are skipped.
+// Breadth-first, sorted walk. Symlinks are never followed; node_modules, .git,
+// __pycache__, venv, site-packages and hidden folders are skipped.
 async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive }) {
     const files = [];
     const skipped = { tooLarge: [], symlinks: 0, unreadable: [] };

@@ -3,7 +3,7 @@
 MCP server for [`sentinel-ir`](https://www.npmjs.com/package/sentinel-ir):
 it lets AI agents in Claude Desktop, Cursor, Windsurf or any other
 [Model Context Protocol](https://modelcontextprotocol.io) client read a
-compact **structural IR** of JavaScript and TypeScript files instead of the raw source.
+compact **structural IR** of JavaScript, TypeScript and Python files instead of the raw source.
 
 - npm: <https://www.npmjs.com/package/sentinel-ir-mcp>
 - GitLab: <https://gitlab.com/jakubrojicek11/sentinel-ir-mcp>
@@ -15,13 +15,15 @@ environment reads, network / filesystem / process / crypto calls) in a few
 hundred characters. The agent can triage a folder first and then read the raw
 source only of the files that matter.
 
-**Supported:** JavaScript (`.js`, `.mjs`, `.cjs`) and TypeScript (`.ts`, `.mts`,
-`.cts`, `.tsx`; since 0.2.0). The language is picked from the file extension;
-`analyze_code` also takes `target` or an explicit `language`
-(`javascript` | `typescript` | `tsx`). Every result carries `language` and
+**Supported:** JavaScript (`.js`, `.mjs`, `.cjs`), TypeScript (`.ts`, `.mts`,
+`.cts`, `.tsx`; since 0.2.0) and Python (`.py`, `.pyi`; since 0.3.0). The
+language is picked from the file extension; `analyze_code` also takes `target`
+or an explicit `language` (`javascript` | `typescript` | `tsx` | `python`). Every result carries `language` and
 `analysisStatus`; a file that does not parse cleanly (including JSX in a `.ts`
 file) is `"incomplete"`, and a low risk on an incomplete result is not evidence
-of safety. Python and other languages are not supported yet.
+of safety. Other languages are not supported yet. What is detected in Python
+(and what is not) is listed in the
+[sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
 ## Tools
 
@@ -66,9 +68,9 @@ nothing to compile (the parser is WebAssembly).
 Run it in your project folder:
 
 ```bash
-npx -y sentinel-ir-mcp@0.2 setup --client cursor     # or windsurf, claude-desktop, vscode, claude-code
-npx -y sentinel-ir-mcp@0.2 doctor --client cursor    # after restarting the client
-npx -y sentinel-ir-mcp@0.2 guide                     # optional: text for AGENTS.md / client rules
+npx -y sentinel-ir-mcp@0.3 setup --client cursor     # or windsurf, claude-desktop, vscode, claude-code
+npx -y sentinel-ir-mcp@0.3 doctor --client cursor    # after restarting the client
+npx -y sentinel-ir-mcp@0.3 guide                     # optional: text for AGENTS.md / client rules
 ```
 
 `setup` (without `--client` it asks which client):
@@ -82,8 +84,8 @@ npx -y sentinel-ir-mcp@0.2 guide                     # optional: text for AGENTS
   touched;
 - gives the agent one folder (`--project`, default: the current folder) and
   refuses your home folder or a whole disk;
-- writes `sentinel-ir-mcp@0.2`, so clients get 0.2.x fixes but no unexpected
-  new major features;
+- writes `sentinel-ir-mcp@0.3`, so clients get 0.3.x fixes but no unexpected
+  new features;
 - for VS Code and Claude Code it writes nothing and prints their own install
   command (`code --add-mcp ...`, `claude mcp add ...`) instead.
 
@@ -95,7 +97,7 @@ npx -y sentinel-ir-mcp@0.2 guide                     # optional: text for AGENTS
 | `vscode`, `claude-code` | nothing; prints the command to run |
 
 On Windows the entry is `"command": "cmd", "args": ["/c", "npx", "-y",
-"sentinel-ir-mcp@0.2", "<folder>"]`: there `npx` is `npx.cmd`, and starting it
+"sentinel-ir-mcp@0.3", "<folder>"]`: there `npx` is `npx.cmd`, and starting it
 without a shell failed with `ENOENT` on a real Windows runner. For VS Code and
 Claude Code, `setup` prints a PowerShell and a Command Prompt version of the
 command. What was measured on which system: [COMPATIBILITY.md](COMPATIBILITY.md).
@@ -114,6 +116,14 @@ stays read-only.
 A folder that is literally named `setup`, `doctor` or `guide` must now be
 passed as `./setup` (or an absolute path); the bare word is the command.
 
+### Upgrading from 0.2.x
+
+Configs written by 0.2.x pin `sentinel-ir-mcp@0.2` and keep running 0.2.x,
+which has no Python support. Run `setup` again for your client (it replaces
+only the `"sentinel-ir"` entry); `doctor` warns about an entry that still pins
+0.2 or older. If the client still starts an old version, see
+[Getting a newer version](#getting-a-newer-version).
+
 ### One-click install links
 
 These links follow the Cursor and VS Code documentation. They were generated
@@ -121,8 +131,8 @@ and decoded in tests but not clicked in the real apps. A link cannot know your
 project path, so it uses `${workspaceFolder}`; if your client does not expand
 it, use `setup` instead.
 
-- Cursor: [Install in Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=sentinel-ir&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNlbnRpbmVsLWlyLW1jcEAwLjIiLCIke3dvcmtzcGFjZUZvbGRlcn0iXX0=)
-- VS Code: [Install in VS Code](vscode:mcp/install?%7B%22name%22%3A%22sentinel-ir%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22sentinel-ir-mcp%400.2%22%2C%22%24%7BworkspaceFolder%7D%22%5D%7D)
+- Cursor: [Install in Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=sentinel-ir&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNlbnRpbmVsLWlyLW1jcEAwLjMiLCIke3dvcmtzcGFjZUZvbGRlcn0iXX0=)
+- VS Code: [Install in VS Code](vscode:mcp/install?%7B%22name%22%3A%22sentinel-ir%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22sentinel-ir-mcp%400.3%22%2C%22%24%7BworkspaceFolder%7D%22%5D%7D)
 
 Some sites (including GitLab and npm) may not open `cursor://` or `vscode:`
 links; copy the link into the browser address bar or use `setup`.
@@ -141,7 +151,7 @@ Settings → Developer → Edit Config opens `claude_desktop_config.json`
   "mcpServers": {
     "sentinel-ir": {
       "command": "npx",
-      "args": ["-y", "sentinel-ir-mcp@0.2", "/Users/you/projects/my-app"]
+      "args": ["-y", "sentinel-ir-mcp@0.3", "/Users/you/projects/my-app"]
     }
   }
 }
@@ -159,7 +169,7 @@ Project `.cursor/mcp.json` (or `~/.cursor/mcp.json` for all projects).
   "mcpServers": {
     "sentinel-ir": {
       "command": "npx",
-      "args": ["-y", "sentinel-ir-mcp@0.2", "${workspaceFolder}"]
+      "args": ["-y", "sentinel-ir-mcp@0.3", "${workspaceFolder}"]
     }
   }
 }
@@ -175,8 +185,8 @@ with your project's absolute path.
 #### Other clients
 
 Any MCP client that starts stdio servers works with
-`command: "npx"`, `args: ["-y", "sentinel-ir-mcp@0.2", "<folder>"]`
-(on Windows: `command: "cmd"`, `args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.2", "<folder>"]`).
+`command: "npx"`, `args: ["-y", "sentinel-ir-mcp@0.3", "<folder>"]`
+(on Windows: `command: "cmd"`, `args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.3", "<folder>"]`).
 Without folder arguments the server uses the client's
 [MCP roots](https://modelcontextprotocol.io/specification/latest/client/roots)
 if the client offers them; if it offers none, only `analyze_code` works.

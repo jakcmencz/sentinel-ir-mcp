@@ -4,6 +4,15 @@ Measured for `sentinel-ir-mcp` 0.2.2/0.2.3 in October 2026. "Works" means the
 listed check was observed, nothing more. No AI agent called the tools inside a
 client app: that needs a signed-in account, which was not used.
 
+## 0.3.0 (Python)
+
+0.3.0 changes what is analyzed (`.py`, `.pyi`; skips `__pycache__`, `venv`,
+`site-packages`) and the version `setup` writes (`sentinel-ir-mcp@0.3`). How
+clients start the server is unchanged, so the client-app results below (made
+with 0.2.2/0.2.3) were not repeated for 0.3.0. 0.3.0 was checked with the test
+suite on Linux and in the Windows CI jobs, and with a packed-tarball install
+on Linux (Node 20, 22, 24).
+
 ## Client apps (Linux desktop VM, Ubuntu 22.04, no account signed in)
 
 | Client | Version | Install path tested | Observed |
