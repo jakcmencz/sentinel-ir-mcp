@@ -111,13 +111,35 @@ report.
 Only `setup` writes files, and only the client config. The MCP server itself
 stays read-only.
 
+**Cursor:** a server from a project `.cursor/mcp.json` starts switched off.
+Open Cursor Settings → Customize → MCPs and turn on the switch next to
+`sentinel-ir` (its source is the project's `.cursor/mcp.json`). It then shows
+*Connected* and 3 tools. A server installed with the link below (user-level
+`~/.cursor/mcp.json`) connected without this step.
+
+### Getting a newer 0.2.x
+
+`npx` keeps the package it downloaded for `sentinel-ir-mcp@0.2` and keeps
+starting that copy, even when a newer 0.2.x is on npm (measured with npm
+10.8.2, 10.8.3 and 10.9.9: a cached 0.2.2 kept running after 0.2.3 was
+released; `--prefer-online` and `npm cache clean --force` did not change it).
+To get the newest 0.2.x:
+
+1. Check what runs: `npx -y sentinel-ir-mcp@0.2 doctor` prints
+   `sentinel-ir-mcp <version>`.
+2. Close the client app and delete the `_npx` folder in npm's cache
+   (`npm config get cache` shows where it is; usually `~/.npm/_npx`, on
+   Windows `%LocalAppData%\npm-cache\_npx`). This removes all packages cached
+   by `npx`, not only this one; they are downloaded again when needed.
+3. Start the client again. The next start downloads the newest 0.2.x.
+
 A folder that is literally named `setup`, `doctor` or `guide` must now be
 passed as `./setup` (or an absolute path); the bare word is the command.
 
 ### One-click install links
 
-These links follow the Cursor and VS Code documentation. They were generated
-and decoded in tests but not clicked in the real apps. A link cannot know your
+These links follow the Cursor and VS Code documentation. They were opened in
+VS Code 1.143 and Cursor 3.26 (see [COMPATIBILITY.md](COMPATIBILITY.md)). A link cannot know your
 project path, so it uses `${workspaceFolder}`; if your client does not expand
 it, use `setup` instead.
 
@@ -152,7 +174,8 @@ Restart Claude Desktop afterwards.
 #### Cursor
 
 Project `.cursor/mcp.json` (or `~/.cursor/mcp.json` for all projects).
-`${workspaceFolder}` is the folder that contains `.cursor/mcp.json`:
+`${workspaceFolder}` is the folder that contains `.cursor/mcp.json`. A
+project entry has to be switched on once in Cursor Settings → Customize → MCPs:
 
 ```json
 {
