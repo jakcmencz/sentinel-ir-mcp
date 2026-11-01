@@ -1,18 +1,43 @@
 # Compatibility: what was measured
 
-Measured for `sentinel-ir-mcp` 0.2.2/0.2.3 in October 2026. "Works" means the
-listed check was observed, nothing more. An AI agent called the tools in one
-client app only: Cursor with a signed-in free (Hobby) account, see
+Measured for `sentinel-ir-mcp` 0.2.2/0.2.3 and the published 0.3.0 in
+October/November 2026. "Works" means the listed check was observed, nothing
+more. An AI agent called the tools in two client apps: Cursor (free Hobby
+account) with 0.2.3 and 0.3.0, and VS Code with GitHub Copilot Free with 0.3.0,
+see [0.3.0](#030-python) and
 [Signed-in clients](#signed-in-clients-linux-desktop-vm).
 
 ## 0.3.0 (Python)
 
 0.3.0 changes what is analyzed (`.py`, `.pyi`; skips `__pycache__`, `venv`,
 `site-packages`) and the version `setup` writes (`sentinel-ir-mcp@0.3`). How
-clients start the server is unchanged, so the client-app results below (made
-with 0.2.2/0.2.3) were not repeated for 0.3.0. 0.3.0 was checked with the test
-suite on Linux and in the Windows CI jobs, and with a packed-tarball install
-on Linux (Node 20, 22, 24).
+clients start the server is unchanged.
+
+Before release: the test suite on Linux (60/60) and in the Windows CI jobs
+(59 passed, 1 skipped), and a packed-tarball install on Linux (Node 20, 22, 24).
+
+After release, measured once on 2026-11-01 with the published 0.3.0 on the
+Linux desktop VM (Ubuntu 22.04, Node 24.19.0, npm 10.8.3), a fresh npx cache
+and a project outside any `node_modules`. In every app the server process it
+started loaded `sentinel-ir-mcp` 0.3.0 and `sentinel-ir` 0.3.0 (checked in the
+spawned process's `package.json`). Project: `py/app.py` (FastAPI route +
+`pickle.loads`), `run.py` (`subprocess` via an alias), `a.ts`, later
+`py/types.pyi`, and dangerous Python files inside `py/__pycache__`, `venv`,
+`.venv` and `site-packages`.
+
+| Client | Version | Account | Configured with | Observed |
+|---|---|---|---|---|
+| Cursor | 3.26.16 | Hobby (free) | `setup --client cursor --yes` (project `.cursor/mcp.json`, `@0.3`) | first *Disabled* / *Local Disconnected*; after turning on its switch in Cursor Settings → Customize → MCPs: *Connected*, 3 tools |
+| Cursor | 3.26.16 | Hobby (free) | same | the Agent called `analyze_directory`: `py/app.py` python `critical` with `unsafe_deserialization` and route `POST /x`, `run.py` python `critical`, `a.ts` typescript `low`; complete 3, incomplete 0; nothing from the skipped folders. A second call on `py` returned `py/types.pyi` as python `low` |
+| VS Code + GitHub Copilot Chat 0.71.0 | 1.143.0 | Copilot Free | printed `code --add-mcp` command | *Running*, *Discovered 3 tools*. The Agent (model selection *Auto*) called `analyze_directory` with `{"path":"/home/ubuntu/sir030-proj","recursive":true}`: the same four files and risks as above, `analyzed: 4`, complete 4, incomplete 0, nothing from the skipped folders. No tool confirmation prompt appeared |
+| Claude Code | 2.1.308 | none | printed `claude mcp add` command | `claude mcp list` / `get`: `✔ Connected`, args `-y sentinel-ir-mcp@0.3 <folder>` |
+
+`doctor --client cursor` with the new entry: exit 0, handshake with 0.3.0,
+three tools. With the same entry changed to `sentinel-ir-mcp@0.2` it warns
+*This entry stays on an older version without Python support* (still exit 0).
+
+Not measured for 0.3.0: Windows and macOS apps, Devin Desktop (Windsurf),
+Claude Desktop, an agent call in Claude Code.
 
 ## Client apps (Linux desktop VM, Ubuntu 22.04, no account signed in)
 
