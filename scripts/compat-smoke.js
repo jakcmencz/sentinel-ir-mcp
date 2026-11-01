@@ -2,19 +2,28 @@
 
 // Real-OS smoke test (used by the Windows CI job): pack this checkout, install
 // the tarball, run setup/doctor against the real config locations, and
-// measure how a client can start `npx -y sentinel-ir-mcp@0.2` on this OS.
+// measure how a client can start the published package through `npx` on this OS.
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { execSync, spawn } = require("child_process");
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
-const { CLIENTS } = require("../src/clients");
+const { CLIENTS, PACKAGE_SPEC } = require("../src/clients");
 
 const ROOT = path.join(__dirname, "..");
 const report = { platform: process.platform, release: os.release(), node: process.version, steps: [] };
 const step = (name, ok, detail) => { report.steps.push({ name, ok, detail }); console.log(`${ok ? "PASS" : "FAIL"} ${name}: ${typeof detail === "string" ? detail : JSON.stringify(detail)}`); };
 const sh = (cmd, cwd) => execSync(cmd, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+
+// The npx checks measure how clients start a published package. Before this
+// line is on npm (the MR that introduces it), fall back to the latest release.
+function publishedSpec() {
+    try {
+        if (sh(`npm view ${PACKAGE_SPEC} version`).trim()) return PACKAGE_SPEC;
+    } catch { /* not published yet */ }
+    return "sentinel-ir-mcp@latest";
+}
 
 function rawSpawn(command, args) {
     return new Promise((resolve) => {
@@ -89,7 +98,10 @@ async function handshake(command, args, cwd) {
         step(`doctor ${client}`, d.code === 0 && r.ok === true, (r.checks || []).map((c) => `${c.status}:${c.id}`).join(" ") || r.raw);
     }
 
-    const args = ["-y", "sentinel-ir-mcp@0.2", project];
+    const npxSpec = publishedSpec();
+    report.npxSpec = npxSpec;
+    console.log(`INFO npx checks start ${npxSpec} (written by setup: ${PACKAGE_SPEC})`);
+    const args = ["-y", npxSpec, project];
     report.rawSpawnNpx = await rawSpawn("npx", args);
     console.log("INFO raw spawn('npx', no shell):", JSON.stringify(report.rawSpawnNpx));
     report.sdkNpx = await handshake("npx", args, base);
@@ -98,13 +110,13 @@ async function handshake(command, args, cwd) {
         report.sdkCmdNpx = await handshake("cmd", ["/c", "npx", ...args], base);
         console.log("INFO MCP SDK client, command \"cmd /c npx\":", JSON.stringify(report.sdkCmdNpx));
     }
-    step("published sentinel-ir-mcp@0.2 starts through npx from an MCP SDK client", report.sdkNpx.ok || Boolean(report.sdkCmdNpx && report.sdkCmdNpx.ok), "see INFO lines");
+    step(`published ${npxSpec} starts through npx from an MCP SDK client`, report.sdkNpx.ok || Boolean(report.sdkCmdNpx && report.sdkCmdNpx.ok), "see INFO lines");
 
     report.npm = sh("npm -v", base).trim();
     const pct = path.join(base, "100% done");
     fs.mkdirSync(pct);
     fs.copyFileSync(path.join(project, "run.js"), path.join(pct, "run.js"));
-    const pctArgs = ["-y", "sentinel-ir-mcp@0.2", pct];
+    const pctArgs = ["-y", npxSpec, pct];
     report.npxCwdPercent = process.platform === "win32"
         ? await handshake("cmd", ["/c", "npx", ...pctArgs], pct)
         : await handshake("npx", pctArgs, pct);
@@ -118,7 +130,7 @@ async function handshake(command, args, cwd) {
         const envVar = path.join(base, "a %OS% b");
         fs.mkdirSync(envVar);
         fs.copyFileSync(path.join(project, "run.js"), path.join(envVar, "run.js"));
-        report.cmdEnvVarInFolder = await handshake("cmd", ["/c", "npx", "-y", "sentinel-ir-mcp@0.2", envVar], base);
+        report.cmdEnvVarInFolder = await handshake("cmd", ["/c", "npx", "-y", npxSpec, envVar], base);
         console.log(`INFO cmd /c npx, folder argument contains %OS%: ${JSON.stringify(report.cmdEnvVarInFolder)}`);
     }
 

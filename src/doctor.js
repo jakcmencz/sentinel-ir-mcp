@@ -67,6 +67,8 @@ function checkConfig(client, file, explicit, project, add, platform) {
     const runs = `${label}: "${SERVER_NAME}" runs ${entry.command} ${args.join(" ")}`;
     if (entry.command === "npx" && platform === "win32") {
         add("warn", `${client}.entry`, runs, `On Windows a client may not find "npx" without a shell. Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
+    } else if (args.some(a => /^sentinel-ir-mcp@0\.[0-2](\.|$)/.test(a))) {
+        add("warn", `${client}.entry`, runs, `This entry stays on an older version without Python support. Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
     } else if (entry.command === "npx" || isWindowsNpxWrapper(entry)) {
         add("ok", `${client}.entry`, runs);
     } else {
@@ -102,14 +104,14 @@ async function checkHandshake(folders, add, timeoutMs) {
         add("ok", "mcp.handshake", `MCP handshake with ${info.name} ${info.version}`);
         const tools = (await withTimeout(client.listTools(), timeoutMs, "tools/list")).tools.map((t) => t.name).sort();
         if (JSON.stringify(tools) === JSON.stringify(EXPECTED_TOOLS)) add("ok", "mcp.tools", `Tools: ${tools.join(", ")}`);
-        else add("fail", "mcp.tools", `Unexpected tools: ${tools.join(", ")}`, "Reinstall: npx -y sentinel-ir-mcp@0.2 --version");
+        else add("fail", "mcp.tools", `Unexpected tools: ${tools.join(", ")}`, `Reinstall: npx -y ${PACKAGE_SPEC} --version`);
         if (folders.length) {
             const r = await withTimeout(client.callTool({ name: "analyze_directory", arguments: { path: folders[0], max_files: 1 } }), timeoutMs, "analyze_directory");
             if (r.isError) add("fail", "mcp.call", `analyze_directory failed: ${r.content[0].text}`, "Check that the folder is readable.");
             else add("ok", "mcp.call", `analyze_directory works on ${folders[0]} (${r.structuredContent.analyzed} file(s) checked)`);
         }
     } catch (e) {
-        add("fail", "mcp.handshake", `MCP connection failed: ${e.message}`, "Run npx -y sentinel-ir-mcp@0.2 --help to see whether the package starts.");
+        add("fail", "mcp.handshake", `MCP connection failed: ${e.message}`, `Run npx -y ${PACKAGE_SPEC} --help to see whether the package starts.`);
     } finally {
         await client.close().catch(() => {});
     }

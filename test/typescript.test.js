@@ -64,7 +64,7 @@ test("analyze_code accepts a language or infers it from target", async () => {
     assert.equal(plain.language, "javascript");
     assert.equal(plain.analysisStatus, "incomplete", "TypeScript read as JavaScript must not look complete");
 
-    const bad = await call(client, "analyze_code", { code: "x", language: "python" });
+    const bad = await call(client, "analyze_code", { code: "x", language: "ruby" });
     assert.equal(bad.isError, true);
 });
 
