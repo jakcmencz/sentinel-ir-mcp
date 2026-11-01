@@ -6,7 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { runCommand } = require("../src/cli");
-const { installLinks } = require("../src/clients");
+const { installLinks, shellQuote } = require("../src/clients");
 
 const ENTRY = (folder) => ({ command: "npx", args: ["-y", "sentinel-ir-mcp@0.2", folder] });
 
@@ -37,7 +37,7 @@ async function setup(sb, argv, extra = {}) {
     return { code, stdout, stderr };
 }
 
-const windsurfFile = (sb) => path.join(sb.home, ".codeium", "windsurf", "mcp_config.json");
+const windsurfFile = (sb) => path.join(sb.home, ".config", "devin", "mcp_config.json");
 const listing = (dir) => fs.readdirSync(dir).sort();
 
 test("clean install writes only the sentinel-ir entry with @0.2 and the project path", async () => {
@@ -125,7 +125,7 @@ test("--dry-run and a missing --yes write nothing; an interactive 'y' writes, an
         assert.equal(dry.code, 0);
         assert.match(dry.stdout, /Dry run\. Nothing was written/);
         assert.match(dry.stdout, /sentinel-ir-mcp@0\.2/);
-        assert.equal(fs.existsSync(path.join(sb.home, ".codeium")), false);
+        assert.equal(fs.existsSync(path.join(sb.home, ".config")), false);
 
         const noYes = await setup(sb, ["--client", "windsurf"]);
         assert.equal(noYes.code, 1);
@@ -226,7 +226,7 @@ test("VS Code and Claude Code: setup prints their official command and writes no
         assert.deepEqual(JSON.parse(json), { name: "sentinel-ir", type: "stdio", ...ENTRY(sb.project) });
         const cc = await setup(sb, ["--client", "claude-code"]);
         assert.equal(cc.code, 0);
-        assert.ok(cc.stdout.includes(`claude mcp add --transport stdio sentinel-ir -- npx -y sentinel-ir-mcp@0.2 ${sb.project}`));
+        assert.ok(cc.stdout.includes(`claude mcp add --transport stdio sentinel-ir -- npx -y sentinel-ir-mcp@0.2 ${shellQuote(sb.project)}`));
         assert.deepEqual(listing(sb.home), []);
         assert.deepEqual(listing(sb.project), ["a.js"]);
     } finally { sb.cleanup(); }
@@ -238,4 +238,117 @@ test("one-click links decode to the same pinned entry", () => {
     assert.deepEqual(JSON.parse(Buffer.from(cfg, "base64").toString()), ENTRY("${workspaceFolder}"));
     assert.deepEqual(JSON.parse(decodeURIComponent(vscode.slice("vscode:mcp/install?".length))),
         { name: "sentinel-ir", type: "stdio", ...ENTRY("${workspaceFolder}") });
+});
+
+test("Windsurf: Devin config location, XDG_CONFIG_HOME and Windows %APPDATA% (simulated)", async () => {
+    const sb = sandbox();
+    try {
+        const xdg = path.join(sb.base, "xdg");
+        assert.equal((await setup(sb, ["--client", "windsurf", "--yes"], { env: { XDG_CONFIG_HOME: xdg } })).code, 0);
+        assert.ok(fs.existsSync(path.join(xdg, "devin", "mcp_config.json")));
+
+        const appdata = path.join(sb.base, "AppData", "Roaming");
+        assert.equal((await setup(sb, ["--client", "windsurf", "--yes"], { platform: "win32", env: { APPDATA: appdata } })).code, 0);
+        assert.deepEqual(JSON.parse(fs.readFileSync(path.join(appdata, "devin", "mcp_config.json"), "utf8")).mcpServers["sentinel-ir"],
+            { command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.2", sb.project] });
+    } finally { sb.cleanup(); }
+});
+
+test("Windsurf: servers in the old ~/.codeium file are copied to the new file; the old file is not touched", async () => {
+    const sb = sandbox();
+    try {
+        const legacy = path.join(sb.home, ".codeium", "windsurf", "mcp_config.json");
+        fs.mkdirSync(path.dirname(legacy), { recursive: true });
+        const legacyText = '{\n    "mcpServers": { "github": { "command": "gh" } },\n    "x": 1\n}\n';
+        fs.writeFileSync(legacy, legacyText);
+        const r = await setup(sb, ["--client", "windsurf", "--yes"]);
+        assert.equal(r.code, 0);
+        assert.match(r.stdout, /Copied from: .*\.codeium/);
+        assert.deepEqual(JSON.parse(fs.readFileSync(windsurfFile(sb), "utf8")),
+            { mcpServers: { github: { command: "gh" }, "sentinel-ir": ENTRY(sb.project) }, x: 1 });
+        assert.equal(fs.readFileSync(legacy, "utf8"), legacyText);
+        assert.deepEqual(listing(path.dirname(legacy)), ["mcp_config.json"]);
+        assert.match((await setup(sb, ["--client", "windsurf", "--yes"])).stdout, /Already set up/);
+    } finally { sb.cleanup(); }
+});
+
+test("Windows (simulated): file entries use cmd /c npx; printed Claude Code command is for PowerShell", async () => {
+    const sb = sandbox();
+    try {
+        const appdata = path.join(sb.base, "AppData", "Roaming");
+        const win = { platform: "win32", env: { APPDATA: appdata } };
+        assert.equal((await setup(sb, ["--client", "claude-desktop", "--yes"], win)).code, 0);
+        assert.deepEqual(JSON.parse(fs.readFileSync(path.join(appdata, "Claude", "claude_desktop_config.json"), "utf8")).mcpServers["sentinel-ir"],
+            { command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.2", sb.project] });
+        const cc = await setup(sb, ["--client", "claude-code"], win);
+        assert.equal(cc.code, 0);
+        assert.match(cc.stdout, /in PowerShell:[\s\S]*in Command Prompt/);
+        assert.ok(cc.stdout.includes(`claude mcp add --transport stdio sentinel-ir '--' cmd /c npx -y sentinel-ir-mcp@0.2 '${sb.project}'`), cc.stdout);
+        assert.ok(cc.stdout.includes(`claude mcp add --transport stdio sentinel-ir -- cmd /c npx -y sentinel-ir-mcp@0.2 "${sb.project}"`), cc.stdout);
+        const vs = await setup(sb, ["--client", "vscode"], win);
+        assert.ok(vs.stdout.includes("code --% --add-mcp \"{\\\"name\\\":"), vs.stdout);
+        assert.ok(vs.stdout.includes("code --add-mcp \"{\\\"name\\\":"), vs.stdout);
+        const amp = path.join(sb.base, "a & b");
+        fs.mkdirSync(amp);
+        const vsAmp = await setup(sb, ["--client", "vscode", "--project", amp], win);
+        assert.equal(vsAmp.code, 0);
+        const lines = vsAmp.stdout.split("\n").filter((l) => l.includes("--add-mcp"));
+        assert.equal(lines.length, 2);
+        for (const line of lines) {
+            assert.ok(!line.includes("&") && line.includes("\\u0026"), line);
+            const arg = line.slice(line.indexOf("--add-mcp ") + 10).trim();
+            const config = JSON.parse(windowsArgUnquote(arg));
+            assert.equal(config.args[2], amp);
+        }
+        const pct = path.join(sb.base, "a %OS% b");
+        fs.mkdirSync(pct);
+        const ccPct = await setup(sb, ["--client", "claude-code", "--project", pct], win);
+        const ccLines = ccPct.stdout.split("\n").filter((l) => l.includes("claude mcp"));
+        assert.equal(ccLines.length, 2);
+        assert.ok(ccLines[0].includes(`claude mcp add --transport stdio sentinel-ir '--' cmd /c npx -y sentinel-ir-mcp@0.2 '${pct}'`), ccLines[0]);
+        assert.match(ccLines[1], /claude mcp add-json sentinel-ir "/);
+        assert.ok(!ccLines[1].includes("%OS%"), ccLines[1]);
+        const config = JSON.parse(windowsArgUnquote(ccLines[1].slice(ccLines[1].indexOf(" sentinel-ir ") + 13).trim()));
+        assert.deepEqual(config, { type: "stdio", command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.2", pct] });
+        assert.match(ccPct.stdout, /contains %\. npm 10\.8 .*URI malformed/);
+        const filePct = await setup(sb, ["--client", "cursor", "--project", pct, "--dry-run"], win);
+        assert.match(filePct.stdout, /URI malformed/);
+        const plain = await setup(sb, ["--client", "claude-code", "--project", sb.project], win);
+        assert.ok(!plain.stdout.includes("URI malformed"), plain.stdout);
+    } finally { sb.cleanup(); }
+});
+
+// Inverse of the Windows command-line quoting of one "..." argument (CommandLineToArgvW).
+function windowsArgUnquote(s) {
+    assert.ok(s.startsWith('"') && s.endsWith('"'), s);
+    let out = "";
+    let i = 1;
+    const end = s.length - 1;
+    while (i < end) {
+        let n = 0;
+        while (i < end && s[i] === "\\") { n++; i++; }
+        if (i === end) out += "\\".repeat(n / 2);
+        else if (s[i] === '"') { out += "\\".repeat(Math.floor(n / 2)) + '"'; i++; }
+        else { out += "\\".repeat(n) + s[i]; i++; }
+    }
+    return out;
+}
+
+test("printed doctor hints quote the folder so they can be pasted into a shell", async () => {
+    const sb = sandbox();
+    try {
+        const odd = path.join(sb.base, "it's $HOME & 100% (x)");
+        fs.mkdirSync(odd);
+        const cc = await setup(sb, ["--client", "claude-code", "--project", odd]);
+        assert.ok(cc.stdout.includes(`doctor --client claude-code --project ${shellQuote(odd)}\n`), cc.stdout);
+        const cur = await setup(sb, ["--client", "cursor", "--project", odd, "--yes"]);
+        assert.ok(cur.stdout.includes(`doctor --client cursor --project ${shellQuote(odd)}\n`), cur.stdout);
+        const win = await setup(sb, ["--client", "claude-code", "--project", odd], { platform: "win32", env: { APPDATA: path.join(sb.home, "AppData") } });
+        assert.ok(win.stdout.includes(`(PowerShell): npx -y sentinel-ir-mcp@0.2 doctor --client claude-code --project '${odd.replace(/'/g, "''")}'\n`), win.stdout);
+        if (process.platform !== "win32") {
+            const line = cc.stdout.split("\n").find((l) => l.includes("doctor --client"));
+            const argv = require("child_process").execFileSync("bash", ["-c", `printf '%s\\n' ${line.slice(line.indexOf("--project"))}`], { encoding: "utf8" });
+            assert.equal(argv, `--project\n${odd}\n`);
+        }
+    } finally { sb.cleanup(); }
 });

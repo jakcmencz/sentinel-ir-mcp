@@ -24,7 +24,7 @@ async function run(sb, command, argv, extra = {}) {
     const io = {
         stdout: { write: (s) => { stdout += s; } },
         stderr: { write: (s) => { stderr += s; } },
-        env: { HOME: sb.home }, platform: "linux", cwd: extra.cwd || sb.project, isTTY: false, prompt: null,
+        env: { HOME: sb.home, ...(extra.env || {}) }, platform: extra.platform || "linux", cwd: extra.cwd || sb.project, isTTY: false, prompt: null,
         now: () => Date.UTC(2026, 9, 18), nodeVersion: extra.nodeVersion
     };
     const code = await runCommand(command, argv, io);
@@ -65,7 +65,7 @@ test("doctor resolves ${workspaceFolder} in a Cursor project config", async () =
 test("doctor exits 1 with a fix for a missing config, a missing entry, invalid JSON, a wrong entry or a missing folder", async () => {
     const sb = sandbox();
     try {
-        const file = path.join(sb.home, ".codeium", "windsurf", "mcp_config.json");
+        const file = path.join(sb.home, ".config", "devin", "mcp_config.json");
         const expectFail = async (id, pattern) => {
             const { code, report } = await doctorJson(sb, ["--client", "windsurf"]);
             assert.equal(code, 1, id);
@@ -89,7 +89,7 @@ test("doctor never runs the command stored in the client config", async () => {
     const sb = sandbox();
     try {
         const marker = path.join(sb.base, "ran");
-        const file = path.join(sb.home, ".codeium", "windsurf", "mcp_config.json");
+        const file = path.join(sb.home, ".config", "devin", "mcp_config.json");
         fs.mkdirSync(path.dirname(file), { recursive: true });
         const evil = path.join(sb.base, "evil.js");
         fs.writeFileSync(evil, `require("fs").writeFileSync(${JSON.stringify(marker)}, "x");`);
@@ -127,5 +127,38 @@ test("doctor fails with exit 1 on Node.js older than 20", async () => {
         const { code, report } = await doctorJson(sb, [], { nodeVersion: "18.19.0" });
         assert.equal(code, 1);
         assert.deepEqual(byId(report, "node")[0], { status: "fail", id: "node", message: "Node.js v18.19.0 is too old", fix: "Install Node.js 20 or newer." });
+    } finally { sb.cleanup(); }
+});
+
+test("doctor on Windows (simulated): cmd /c npx is ok, plain npx gets a warning", async () => {
+    const sb = sandbox();
+    try {
+        const appdata = path.join(sb.base, "AppData", "Roaming");
+        const file = path.join(appdata, "Claude", "claude_desktop_config.json");
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        const win = { platform: "win32", env: { APPDATA: appdata } };
+        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.2", sb.project] } } }));
+        let { code, report } = await doctorJson(sb, ["--client", "claude-desktop"], win);
+        assert.equal(code, 0);
+        assert.equal(byId(report, "claude-desktop.entry")[0].status, "ok");
+        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@0.2", sb.project] } } }));
+        ({ code, report } = await doctorJson(sb, ["--client", "claude-desktop"], win));
+        assert.equal(code, 0);
+        assert.equal(byId(report, "claude-desktop.entry")[0].status, "warn");
+        assert.match(byId(report, "claude-desktop.entry")[0].fix, /setup --client claude-desktop/);
+    } finally { sb.cleanup(); }
+});
+
+test("doctor reads an old ~/.codeium Windsurf config and warns that it moved", async () => {
+    const sb = sandbox();
+    try {
+        const legacy = path.join(sb.home, ".codeium", "windsurf", "mcp_config.json");
+        fs.mkdirSync(path.dirname(legacy), { recursive: true });
+        fs.writeFileSync(legacy, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@0.2", sb.project] } } }));
+        const { code, report } = await doctorJson(sb, ["--client", "windsurf"]);
+        assert.equal(code, 0);
+        assert.equal(byId(report, "windsurf.location")[0].status, "warn");
+        assert.match(byId(report, "windsurf.location")[0].fix, /\.config.devin.mcp_config\.json/);
+        assert.equal(byId(report, "windsurf.entry")[0].status, "ok");
     } finally { sb.cleanup(); }
 });

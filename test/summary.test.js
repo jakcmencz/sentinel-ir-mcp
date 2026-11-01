@@ -36,11 +36,18 @@ const SOURCES = {
 };
 
 let dir;
+// "B/Broken.ts" and "b/broken.ts" are the same file on case-insensitive file
+// systems (Windows, default macOS); there it is not created.
+let caseSensitive;
 const LIMITS = { maxFiles: 500, maxFileBytes: 1024 * 1024 };
 
 before(() => {
     dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "sirmcp-summary-")));
+    fs.writeFileSync(path.join(dir, "case-probe"), "");
+    caseSensitive = !fs.existsSync(path.join(dir, "CASE-PROBE"));
+    fs.rmSync(path.join(dir, "case-probe"));
     for (const [rel, text] of Object.entries(SOURCES)) {
+        if (rel === "B/Broken.ts" && !caseSensitive) continue;
         fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
         fs.writeFileSync(path.join(dir, rel), text);
     }
@@ -74,11 +81,12 @@ function assertConsistent(out) {
 test("parse failures are counted once, sorted, and add up to analyzed", async () => {
     const out = await analyzeDirectory(".", [dir], LIMITS);
     assertConsistent(out);
+    const extra = caseSensitive ? 1 : 0;
     assert.deepEqual(out.incomplete, [
-        "B/Broken.ts", "a/broken.ts", "b/broken.ts", "broken.js", "dialect.ts", "garbage.mjs", "ž/broken.tsx"
+        ...(caseSensitive ? ["B/Broken.ts"] : []), "a/broken.ts", "b/broken.ts", "broken.js", "dialect.ts", "garbage.mjs", "ž/broken.tsx"
     ]);
-    assert.deepEqual(out.statusCounts, { complete: 4, incomplete: 7 });
-    assert.equal(out.analyzed, 11);
+    assert.deepEqual(out.statusCounts, { complete: 4, incomplete: 6 + extra });
+    assert.equal(out.analyzed, 10 + extra);
     assert.deepEqual(out.skipped.unreadable, ["explode.js"]);
 });
 
@@ -99,9 +107,10 @@ test("a file that cannot be read is listed in skipped.unreadable, not counted", 
     readMock.mock.restore();
     assertConsistent(out);
     assert.deepEqual(out.skipped.unreadable, ["explode.js", "run.js"]);
-    assert.equal(out.analyzed, 10);
+    const extra = caseSensitive ? 1 : 0;
+    assert.equal(out.analyzed, 9 + extra);
     assert.equal(out.riskCounts.critical, 0, "the unreadable file is not reported with any risk");
-    assert.deepEqual(out.statusCounts, { complete: 3, incomplete: 7 });
+    assert.deepEqual(out.statusCounts, { complete: 3, incomplete: 6 + extra });
 });
 
 test("max_files truncation keeps counts consistent", async () => {
@@ -113,7 +122,7 @@ test("max_files truncation keeps counts consistent", async () => {
     }
 });
 
-test("a real unreadable file (chmod 000) is skipped", { skip: process.getuid?.() === 0 && "root can read mode 000 files" }, async () => {
+test("a real unreadable file (chmod 000) is skipped", { skip: (process.platform === "win32" && "chmod 000 does not block reads on Windows") || (process.getuid?.() === 0 && "root can read mode 000 files") }, async () => {
     const sub = fs.mkdtempSync(path.join(dir, "perm-"));
     fs.writeFileSync(path.join(sub, "locked.js"), "require('child_process').exec('x');\n");
     fs.writeFileSync(path.join(sub, "open.js"), "export const a = 1;\n");

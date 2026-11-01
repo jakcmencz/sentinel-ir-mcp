@@ -3,7 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { isDeepStrictEqual } = require("util");
-const { SERVER_NAME, PACKAGE_SPEC, CLIENTS, homeOf, serverEntry, installCommand } = require("./clients");
+const { SERVER_NAME, PACKAGE_SPEC, CLIENTS, homeOf, serverEntry, installCommand, shellQuote, powershellQuote } = require("./clients");
 
 class SetupError extends Error {}
 
@@ -57,13 +57,17 @@ function readConfig(file) {
     return { exists: true, original, data };
 }
 
-function planFileChange(file, entry) {
+// seedFile: an older config location whose servers are copied into a new file.
+function planFileChange(file, entry, seedFile = null) {
     const target = fs.existsSync(file) ? fs.realpathSync(file) : file;
-    const { exists, original, data } = readConfig(target);
+    const read = readConfig(target);
+    const seeded = !read.exists && seedFile && fs.existsSync(seedFile) ? seedFile : null;
+    const { exists, original } = read;
+    const data = seeded ? readConfig(seeded).data : read.data;
     const servers = data.mcpServers || {};
     const previous = Object.prototype.hasOwnProperty.call(servers, SERVER_NAME) ? servers[SERVER_NAME] : undefined;
     const others = Object.keys(servers).filter((name) => name !== SERVER_NAME);
-    const base = { file, target, entry, previous, others };
+    const base = { file, target, entry, previous, others, seeded };
     if (previous !== undefined && isDeepStrictEqual(previous, entry)) return { ...base, action: "unchanged" };
     const next = { ...data, mcpServers: { ...servers, [SERVER_NAME]: entry } };
     return {
@@ -112,10 +116,23 @@ function describePlan(client, plan, project) {
         `Access:  ${project} (only this folder, read-only)`,
         `Change:  ${{ create: "create the file with", add: "add", update: "replace", unchanged: "none, already set up:" }[plan.action]} "${SERVER_NAME}"`
     ];
+    if (plan.seeded) lines.push(`Copied from: ${plan.seeded} (old location; that file stays unchanged)`);
     if (plan.action === "update") lines.push(`  before: ${JSON.stringify(plan.previous)}`);
     lines.push(`  ${plan.action === "update" ? "after:  " : ""}${JSON.stringify(plan.entry)}`);
     if (plan.others.length) lines.push(`Kept unchanged: ${plan.others.join(", ")}`);
     return lines.join("\n") + "\n";
+}
+
+function percentNote(project) {
+    return project.includes("%")
+        ? "Note: this folder path contains %. npm 10.8 (measured: 10.8.2, 10.8.3) fails with \"npm error URI malformed\" " +
+          "when npx is started inside such a folder; npm 10.9.9 and 11.19.1 work. If the client reports that error, update npm " +
+          "or use a folder without % in its path.\n"
+        : "";
+}
+
+function hintArg(value, platform) {
+    return platform === "win32" ? powershellQuote(value) : shellQuote(value);
 }
 
 async function runSetup(opts, io) {
@@ -140,9 +157,15 @@ async function runSetup(opts, io) {
 
         if (spec.kind === "command") {
             if (opts.config) throw new SetupError(`--config does not apply to ${spec.label}; it installs servers with its own command.`);
-            out(`${spec.label} adds MCP servers with its own command. Nothing was written. Run:\n\n  ${installCommand(client, project)}\n\n`);
+            if (io.platform === "win32") {
+                out(`${spec.label} adds MCP servers with its own command. Nothing was written. Run in PowerShell:\n\n  ${installCommand(client, project, "win32", "powershell")}\n\n` +
+                    `or in Command Prompt (cmd.exe):\n\n  ${installCommand(client, project, "win32", "cmd")}\n\n`);
+            } else {
+                out(`${spec.label} adds MCP servers with its own command. Nothing was written. Run:\n\n  ${installCommand(client, project, io.platform)}\n\n`);
+            }
             out(`Access: ${project} (only this folder, read-only)\n`);
-            out(`Then check the connection: npx -y ${PACKAGE_SPEC} doctor --project ${project}\n`);
+            out(`Then check the connection${io.platform === "win32" ? " (PowerShell)" : ""}: npx -y ${PACKAGE_SPEC} doctor --client ${client} --project ${hintArg(project, io.platform)}\n`);
+            out(percentNote(project));
             return 0;
         }
 
@@ -152,8 +175,10 @@ async function runSetup(opts, io) {
             throw new SetupError(`The ${spec.label} config location is documented for macOS and Windows only. Pass its path with --config <file>.`);
         }
         const folder = opts.config || !spec.folderArg ? project : spec.folderArg(ctx);
-        const plan = planFileChange(file, serverEntry(folder));
+        const seed = !opts.config && spec.legacyConfigPath ? spec.legacyConfigPath(ctx) : null;
+        const plan = planFileChange(file, serverEntry(folder, io.platform), seed);
         out(describePlan(client, plan, project));
+        out(percentNote(project));
 
         if (plan.action === "unchanged") {
             out("Already set up. Nothing was written.\n");
@@ -176,8 +201,8 @@ async function runSetup(opts, io) {
         }
         const { backup } = applyPlan(plan, io.now ? io.now() : Date.now());
         out(`Written.${backup ? ` Backup: ${backup}` : ""}\n`);
-        out(`Next: restart ${spec.label}, then check the connection:\n  npx -y ${PACKAGE_SPEC} doctor --client ${client}` +
-            `${opts.config ? ` --config ${file}` : ""}${client === "cursor" && !opts.global ? ` --project ${project}` : ""}\n`);
+        out(`Next: restart ${spec.label}, then check the connection${io.platform === "win32" ? " (PowerShell)" : ""}:\n  npx -y ${PACKAGE_SPEC} doctor --client ${client}` +
+            `${opts.config ? ` --config ${hintArg(file, io.platform)}` : ""}${client === "cursor" && !opts.global ? ` --project ${hintArg(project, io.platform)}` : ""}\n`);
         out(`Optional instructions for your agent: npx -y ${PACKAGE_SPEC} guide\n`);
         return 0;
     } catch (e) {

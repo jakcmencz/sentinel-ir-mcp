@@ -35,3 +35,27 @@ publish:
     - test "v$(node -p 'require("./package.json").version')" = "$CI_COMMIT_TAG"
     - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
     - npm publish --provenance --access public
+
+# Real Windows: the packed package, setup/doctor against the real %APPDATA%
+# and home folder, and how `npx -y sentinel-ir-mcp@0.2` starts. No client apps.
+windows_compat:
+  stage: test
+  tags: [saas-windows-medium-amd64]
+  parallel:
+    matrix:
+      - NODE_VERSION: ["20.20.2", "22.23.4", "24.22.1"]
+  script:
+    - $ProgressPreference = "SilentlyContinue"
+    - Invoke-WebRequest "https://nodejs.org/dist/v$env:NODE_VERSION/node-v$env:NODE_VERSION-win-x64.zip" -OutFile node.zip
+    - Expand-Archive node.zip -DestinationPath C:\nodejs-ci
+    - $env:Path = "C:\nodejs-ci\node-v$env:NODE_VERSION-win-x64;" + $env:Path
+    - node -v
+    - npm ci
+    - node scripts/win-quote-probe.js; $quote = $LASTEXITCODE
+    - node scripts/compat-smoke.js; $smoke = $LASTEXITCODE
+    - node --test (Get-ChildItem test\*.test.js | ForEach-Object FullName); $tests = $LASTEXITCODE
+    - exit ($quote + $smoke + $tests)
+  artifacts:
+    when: always
+    paths:
+      - compat-*.json
