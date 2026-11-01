@@ -1,8 +1,9 @@
 # Compatibility: what was measured
 
 Measured for `sentinel-ir-mcp` 0.2.2/0.2.3 in October 2026. "Works" means the
-listed check was observed, nothing more. No AI agent called the tools inside a
-client app: that needs a signed-in account, which was not used.
+listed check was observed, nothing more. An AI agent called the tools in one
+client app only: Cursor with a signed-in free (Hobby) account, see
+[Signed-in clients](#signed-in-clients-linux-desktop-vm).
 
 ## Client apps (Linux desktop VM, Ubuntu 22.04, no account signed in)
 
@@ -12,12 +13,38 @@ client app: that needs a signed-in account, which was not used.
 | VS Code | 1.143.0 | `vscode:mcp/install?...` link from this README | install prompt, workspace install, *Running*, *Discovered 3 tools*; `${workspaceFolder}` was expanded to the project path |
 | Claude Code | 2.1.308 | printed `claude mcp add ...` | `claude mcp list`: *✔ Connected* |
 | Cursor | 3.26.16 | `cursor://...` link from this README | *Install MCP server?* prompt with the expected entry; Cursor log: *Successfully connected to stdio server*; the server received the expanded project path |
-| Cursor | 3.26.16 | `setup --client cursor` (project `.cursor/mcp.json`) | file written; the tool list in the app is behind the sign-in screen, **not checked** |
+| Cursor | 3.26.16 | `setup --client cursor` (project `.cursor/mcp.json`) | file written; the tool list in the app is behind the sign-in screen; checked later with an account, see [Signed-in clients](#signed-in-clients-linux-desktop-vm) |
 | Windsurf | 3.10.67 (Devin Desktop) | `setup --client windsurf` (0.2.2, old path) | the app called `~/.codeium/windsurf/mcp_config.json` the *old location* and offered to copy it to `~/.config/devin/mcp_config.json`; 0.2.3 writes the new location. Server list is behind sign-in, **not checked** |
 | Claude Desktop | – | – | **not tested**: no Linux build; only its config file was tested on Windows (below) |
 
 `doctor` passed for each client. It starts its own copy of the server, so it
 does not prove that the app itself connected.
+
+## Signed-in clients (Linux desktop VM)
+
+Measured once in October 2026 on the same VM with the published 0.2.3,
+Node 24.19.0. Project: `src/run.js` (calls `child_process.exec`),
+`src/broken.ts` (syntax error), `src/ok.ts`.
+
+| Client | Version | Account | Observed |
+|---|---|---|---|
+| Cursor | 3.26.16 | Hobby (free) | `setup --client cursor --yes` entry (project `.cursor/mcp.json`, no user-level `~/.cursor/mcp.json`): first *Disabled*, its project source switch off, *Local Disconnected*. After turning the switch on in Cursor Settings → Customize → MCPs: *Connected*, 3 tools (`analyze_code`, `analyze_file`, `analyze_directory`), no other approval prompt. The server got the expanded project path; log: *Successfully connected to stdio server* |
+| Cursor | 3.26.16 | Hobby (free) | Agent mode, prompt asking to use `analyze_directory`: the agent called it with `{"path":"/home/ubuntu/mcp-live","max_files":500,"recursive":true}`; the result had `src/run.js` `critical`, `incomplete: ["src/broken.ts"]`, `statusCounts` `{complete: 2, incomplete: 1}`. No plan limit and no tool confirmation prompt appeared |
+| VS Code + GitHub Copilot Free | 1.143.0 | – | **not tested**: sign-in by GitHub device code did not finish (VS Code stopped waiting after about 150 s: *Failed to sign in to GitHub*) |
+
+The `disconnected` project entries on Windows and macOS (below) were measured
+without an account; their cause was not re-checked there. On Linux the cause
+was the switch.
+
+Two things seen while setting up, both outside the package:
+
+- Cursor started from the desktop menu did not have Node from `nvm` on its
+  `PATH` and showed *Error · spawn npx ENOENT*; started with Node on `PATH`, it
+  worked. Clients need `npx` on the `PATH` they are started with.
+- `npx -y sentinel-ir-mcp@0.2` first ran a 0.2.2 that npx had cached earlier,
+  although 0.2.3 was published. Reproduced with npm 10.8.2, 10.8.3 and 10.9.9;
+  `--prefer-online` and `npm cache clean --force` did not change it, deleting
+  npm's `_npx` cache folder did. See README, *Getting a newer 0.2.x*.
 
 ## Windows (GitLab hosted runner, Windows Server 2022, no client apps)
 
