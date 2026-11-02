@@ -45,7 +45,7 @@ test("doctor after setup: real handshake, exactly three tools, analyze_directory
         assert.equal(code, 0, JSON.stringify(report, null, 2));
         assert.equal(report.ok, true);
         assert.equal(byId(report, "node")[0].status, "ok");
-        assert.match(byId(report, "windsurf.entry")[0].message, /sentinel-ir-mcp@0\.3/);
+        assert.match(byId(report, "windsurf.entry")[0].message, /sentinel-ir-mcp@0\.4/);
         assert.equal(byId(report, "mcp.handshake")[0].status, "ok");
         assert.equal(byId(report, "mcp.tools")[0].message, "Tools: analyze_code, analyze_directory, analyze_file");
         assert.ok(byId(report, "mcp.call")[0].message.includes(sb.project), "uses the folder from the config, not the cwd");
@@ -80,7 +80,7 @@ test("doctor exits 1 with a fix for a missing config, a missing entry, invalid J
         await expectFail("windsurf.config", /not valid JSON/);
         fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "rm", args: ["-rf", "/"] } } }));
         await expectFail("windsurf.entry", /does not start sentinel-ir-mcp/);
-        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@0.3", path.join(sb.base, "gone")] } } }));
+        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@0.4", path.join(sb.base, "gone")] } } }));
         await expectFail("windsurf.folder", /does not exist/);
     } finally { sb.cleanup(); }
 });
@@ -116,7 +116,7 @@ test("doctor without a client checks configs it finds and the project folder; te
 });
 
 test("entryFolders skips flags and their values", () => {
-    assert.deepEqual(entryFolders(["-y", "sentinel-ir-mcp@0.3", "--max-files", "5", "/a", "--max-file-bytes=9", "/b"]), ["/a", "/b"]);
+    assert.deepEqual(entryFolders(["-y", "sentinel-ir-mcp@0.4", "--max-files", "5", "/a", "--max-file-bytes=9", "/b"]), ["/a", "/b"]);
     assert.deepEqual(entryFolders(["-y", "sentinel-ir-mcp"]), []);
     assert.equal(entryFolders(["-y", "other-server"]), null);
 });
@@ -137,11 +137,11 @@ test("doctor on Windows (simulated): cmd /c npx is ok, plain npx gets a warning"
         const file = path.join(appdata, "Claude", "claude_desktop_config.json");
         fs.mkdirSync(path.dirname(file), { recursive: true });
         const win = { platform: "win32", env: { APPDATA: appdata } };
-        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.3", sb.project] } } }));
+        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.4", sb.project] } } }));
         let { code, report } = await doctorJson(sb, ["--client", "claude-desktop"], win);
         assert.equal(code, 0);
         assert.equal(byId(report, "claude-desktop.entry")[0].status, "ok");
-        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@0.3", sb.project] } } }));
+        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@0.4", sb.project] } } }));
         ({ code, report } = await doctorJson(sb, ["--client", "claude-desktop"], win));
         assert.equal(code, 0);
         assert.equal(byId(report, "claude-desktop.entry")[0].status, "warn");
@@ -154,11 +154,26 @@ test("doctor reads an old ~/.codeium Windsurf config and warns that it moved", a
     try {
         const legacy = path.join(sb.home, ".codeium", "windsurf", "mcp_config.json");
         fs.mkdirSync(path.dirname(legacy), { recursive: true });
-        fs.writeFileSync(legacy, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@0.3", sb.project] } } }));
+        fs.writeFileSync(legacy, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@0.4", sb.project] } } }));
         const { code, report } = await doctorJson(sb, ["--client", "windsurf"]);
         assert.equal(code, 0);
         assert.equal(byId(report, "windsurf.location")[0].status, "warn");
         assert.match(byId(report, "windsurf.location")[0].fix, /\.config.devin.mcp_config\.json/);
         assert.equal(byId(report, "windsurf.entry")[0].status, "ok");
+    } finally { sb.cleanup(); }
+});
+
+test("doctor warns about entries pinned to 0.3 or older and accepts 0.4", async () => {
+    const sb = sandbox();
+    try {
+        const file = path.join(sb.home, ".cursor", "mcp.json");
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        for (const [spec, status] of [["sentinel-ir-mcp@0.2", "warn"], ["sentinel-ir-mcp@0.3", "warn"], ["sentinel-ir-mcp@0.3.0", "warn"], ["sentinel-ir-mcp@0.4", "ok"]]) {
+            fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", spec, sb.project] } } }));
+            const { report } = await doctorJson(sb, ["--client", "cursor", "--global"]);
+            const entry = byId(report, "cursor.entry")[0];
+            assert.equal(entry.status, status, spec);
+            if (status === "warn") assert.match(entry.fix, /sentinel-ir-mcp@0\.4 setup --client cursor/);
+        }
     } finally { sb.cleanup(); }
 });
