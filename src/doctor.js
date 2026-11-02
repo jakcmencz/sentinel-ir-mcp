@@ -67,8 +67,8 @@ function checkConfig(client, file, explicit, project, add, platform) {
     const runs = `${label}: "${SERVER_NAME}" runs ${entry.command} ${args.join(" ")}`;
     if (entry.command === "npx" && platform === "win32") {
         add("warn", `${client}.entry`, runs, `On Windows a client may not find "npx" without a shell. Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
-    } else if (args.some(a => /^sentinel-ir-mcp@0\.[0-2](\.|$)/.test(a))) {
-        add("warn", `${client}.entry`, runs, `This entry stays on an older version without Python support. Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
+    } else if (args.some(a => /^sentinel-ir-mcp@0\.[0-3](\.|$)/.test(a))) {
+        add("warn", `${client}.entry`, runs, `This entry stays on an older version without native-code detection, whose parser stops working in long sessions. Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
     } else if (entry.command === "npx" || isWindowsNpxWrapper(entry)) {
         add("ok", `${client}.entry`, runs);
     } else {

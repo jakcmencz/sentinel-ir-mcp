@@ -12,6 +12,7 @@ const PY_SOURCES = {
     "py/load.py": `import pickle\ndef load(b):\n    return pickle.loads(b)\n`,
     "py/stubs.pyi": `def f(x: int) -> int: ...\n`,
     "py/broken.py": `def f(:\n`,
+    "py/native.py": `import ctypes\nctypes.CDLL("libc.so.6").system(b"id")\n`,
     "py/__pycache__/cached.py": `import os\nos.system("x")\n`,
     "venv/lib/site.py": `import os\nos.system("x")\n`
 };
@@ -57,6 +58,7 @@ test("analyze_directory includes Python files and skips __pycache__ and venv", a
     const rows = result.files.filter(f => /^(py|venv)\//.test(f.path)).map(f => [f.path, f.language, f.risk, f.analysisStatus]);
     assert.deepEqual(rows, [
         ["py/load.py", "python", "critical", "complete"],
+        ["py/native.py", "python", "critical", "complete"],
         ["py/run.py", "python", "critical", "complete"],
         ["py/app.py", "python", "medium", "complete"],
         ["py/broken.py", "python", "low", "incomplete"],
@@ -64,5 +66,17 @@ test("analyze_directory includes Python files and skips __pycache__ and venv", a
     ]);
     assert.ok(result.incomplete.includes("py/broken.py"));
     const inPy = (await call(client, "analyze_directory", { path: "py" })).structuredContent;
-    assert.deepEqual(inPy.statusCounts, { complete: 4, incomplete: 1 });
+    assert.deepEqual(inPy.statusCounts, { complete: 5, incomplete: 1 });
+});
+
+test("native code (ctypes) is critical through analyze_file and analyze_code", async () => {
+    const file = (await call(client, "analyze_file", { path: "py/native.py" })).structuredContent;
+    assert.equal(file.world.risk, "critical");
+    assert.deepEqual(file.forbidden, ["native_code"]);
+    assert.ok(file.facts.operations.includes("nativeCode"));
+    const js = (await call(client, "analyze_code", { code: "process.dlopen(m, './addon.node')", target: "a.js" })).structuredContent;
+    assert.equal(js.world.risk, "critical");
+    assert.ok(js.forbidden.includes("native_code"));
+    const bare = (await call(client, "analyze_code", { code: "import ctypes", language: "python" })).structuredContent;
+    assert.equal(bare.world.risk, "low");
 });

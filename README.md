@@ -25,6 +25,18 @@ of safety. Other languages are not supported yet. What is detected in Python
 (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.4.0** uses `sentinel-ir` 0.4.2:
+
+- **Native code:** `ctypes` / `cffi`, `process.dlopen`, `*.node` addons and
+  FFI packages (`koffi`, `ffi-napi`, `bun:ffi`, ...) are `critical`, with
+  `native_code` in `forbidden` and `nativeCode` in `facts.operations`.
+- **Long sessions:** older versions never freed the WebAssembly parser
+  memory. After roughly 87 MB of analyzed source in one server process every
+  later result became `"incomplete"` (text fallback) without an error. With
+  `sentinel-ir-mcp` 0.3.0 + `sentinel-ir` 0.3.1 over stdio, `analyze_code` on
+  an 18 KB file went `incomplete` from call 4,918 on; 0.4.0 stays `complete`
+  (measurement below).
+
 ## Tools
 
 | tool | input | returns |
@@ -68,9 +80,9 @@ nothing to compile (the parser is WebAssembly).
 Run it in your project folder:
 
 ```bash
-npx -y sentinel-ir-mcp@0.3 setup --client cursor     # or windsurf, claude-desktop, vscode, claude-code
-npx -y sentinel-ir-mcp@0.3 doctor --client cursor    # after restarting the client
-npx -y sentinel-ir-mcp@0.3 guide                     # optional: text for AGENTS.md / client rules
+npx -y sentinel-ir-mcp@0.4 setup --client cursor     # or windsurf, claude-desktop, vscode, claude-code
+npx -y sentinel-ir-mcp@0.4 doctor --client cursor    # after restarting the client
+npx -y sentinel-ir-mcp@0.4 guide                     # optional: text for AGENTS.md / client rules
 ```
 
 `setup` (without `--client` it asks which client):
@@ -84,7 +96,7 @@ npx -y sentinel-ir-mcp@0.3 guide                     # optional: text for AGENTS
   touched;
 - gives the agent one folder (`--project`, default: the current folder) and
   refuses your home folder or a whole disk;
-- writes `sentinel-ir-mcp@0.3`, so clients get 0.3.x fixes but no unexpected
+- writes `sentinel-ir-mcp@0.4`, so clients get 0.4.x fixes but no unexpected
   new features;
 - for VS Code and Claude Code it writes nothing and prints their own install
   command (`code --add-mcp ...`, `claude mcp add ...`) instead.
@@ -97,7 +109,7 @@ npx -y sentinel-ir-mcp@0.3 guide                     # optional: text for AGENTS
 | `vscode`, `claude-code` | nothing; prints the command to run |
 
 On Windows the entry is `"command": "cmd", "args": ["/c", "npx", "-y",
-"sentinel-ir-mcp@0.3", "<folder>"]`: there `npx` is `npx.cmd`, and starting it
+"sentinel-ir-mcp@0.4", "<folder>"]`: there `npx` is `npx.cmd`, and starting it
 without a shell failed with `ENOENT` on a real Windows runner. For VS Code and
 Claude Code, `setup` prints a PowerShell and a Command Prompt version of the
 command. What was measured on which system: [COMPATIBILITY.md](COMPATIBILITY.md).
@@ -138,12 +150,14 @@ To get the newest 0.2.x:
 A folder that is literally named `setup`, `doctor` or `guide` must now be
 passed as `./setup` (or an absolute path); the bare word is the command.
 
-### Upgrading from 0.2.x
+### Upgrading from 0.3.x or older
 
-Configs written by 0.2.x pin `sentinel-ir-mcp@0.2` and keep running 0.2.x,
-which has no Python support. Run `setup` again for your client (it replaces
-only the `"sentinel-ir"` entry); `doctor` warns about an entry that still pins
-0.2 or older. If the client still starts an old version, see
+Configs written by older versions pin `sentinel-ir-mcp@0.3` (or `@0.2`) and
+keep running that line. 0.3.x has no native-code detection, and its parser
+stops working in long sessions (see 0.4.0 below); 0.2.x also has no Python
+support. Run `setup` again for your client (it replaces only the
+`"sentinel-ir"` entry); `doctor` warns about an entry that still pins 0.3 or
+older. If the client still starts an old version, see
 [Getting a newer version](#getting-a-newer-version).
 
 ### One-click install links
@@ -173,7 +187,7 @@ Settings → Developer → Edit Config opens `claude_desktop_config.json`
   "mcpServers": {
     "sentinel-ir": {
       "command": "npx",
-      "args": ["-y", "sentinel-ir-mcp@0.3", "/Users/you/projects/my-app"]
+      "args": ["-y", "sentinel-ir-mcp@0.4", "/Users/you/projects/my-app"]
     }
   }
 }
@@ -192,7 +206,7 @@ project entry has to be switched on once in Cursor Settings → Customize → MC
   "mcpServers": {
     "sentinel-ir": {
       "command": "npx",
-      "args": ["-y", "sentinel-ir-mcp@0.3", "${workspaceFolder}"]
+      "args": ["-y", "sentinel-ir-mcp@0.4", "${workspaceFolder}"]
     }
   }
 }
@@ -208,8 +222,8 @@ with your project's absolute path.
 #### Other clients
 
 Any MCP client that starts stdio servers works with
-`command: "npx"`, `args: ["-y", "sentinel-ir-mcp@0.3", "<folder>"]`
-(on Windows: `command: "cmd"`, `args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.3", "<folder>"]`).
+`command: "npx"`, `args: ["-y", "sentinel-ir-mcp@0.4", "<folder>"]`
+(on Windows: `command: "cmd"`, `args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.4", "<folder>"]`).
 Without folder arguments the server uses the client's
 [MCP roots](https://modelcontextprotocol.io/specification/latest/client/roots)
 if the client offers them; if it offers none, only `analyze_code` works.
@@ -227,7 +241,7 @@ sentinel-ir-mcp [--max-file-bytes <n>] [--max-files <n>] [folder ...]
 
 - **Reads only.** The MCP server never writes files, runs commands or opens
   network connections (only the separate `setup` command writes, and only the
-  client config file you confirm; `doctor` starts this package's own server). The only files it opens are `.js`/`.mjs`/`.cjs`/`.ts`/`.mts`/`.cts`/`.tsx` files up to
+  client config file you confirm; `doctor` starts this package's own server). The only files it opens are `.js`/`.mjs`/`.cjs`/`.ts`/`.mts`/`.cts`/`.tsx`/`.py`/`.pyi` files up to
   `--max-file-bytes`.
 - **Only inside the allowed folders.** Every path is resolved to its real path
   (symlinks followed) and must lie inside a folder given on the command line,
@@ -264,13 +278,22 @@ very small files. `analyze_file` on `src/ast-facts.js` took about 160 ms per
 call (average of 10, Node 24, Linux cloud VM); the first call also loads the
 WebAssembly parser.
 
+Long session (one server process over stdio, 6,000 `analyze_code` calls on
+the same 17.8 KB JavaScript file, about 107 MB in total, Node 24):
+
+| version | calls with a different `analysisStatus` than the first | first such call |
+|---|---:|---:|
+| 0.3.0 + `sentinel-ir` 0.3.1 | 1,083 | 4,918 |
+| 0.4.0 + `sentinel-ir` 0.4.2 | 0 | — |
+
 ## Dependencies
 
 Three runtime dependencies: the official
 [`@modelcontextprotocol/sdk`](https://www.npmjs.com/package/@modelcontextprotocol/sdk),
 `zod` (its schema peer dependency) and `sentinel-ir`. With their own
 dependencies that is about 100 packages in `node_modules`; `npm audit`
-reported 0 vulnerabilities at release time. Unlike `sentinel-ir` itself,
+reported 0 vulnerabilities at release time (0.4.0: after updating
+`body-parser` to 2.4.0 in the lock file). Unlike `sentinel-ir` itself,
 this package is not dependency-free.
 
 ## Development
