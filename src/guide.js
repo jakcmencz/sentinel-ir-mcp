@@ -10,7 +10,9 @@ Recommended order:
 1. Call analyze_directory on the project (or a sub-folder) first.
 2. Look at "incomplete" and "skipped.unreadable" before anything else. Those
    files were not fully analyzed: a low risk there is NOT evidence of safety.
-   Read their raw source if they matter.
+   Read their raw source if they matter. If "timedOut" is true, the files in
+   "notAnalyzed" were not analyzed at all: call analyze_directory on a
+   sub-folder or analyze_file for them.
 3. Pick the relevant files from "files" (sorted from highest to lowest risk).
 4. Call analyze_file for the full IR of a single file.
 5. Read raw source only for the files you actually need to change or verify.

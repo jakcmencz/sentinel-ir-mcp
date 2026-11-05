@@ -23,7 +23,8 @@ Usage: sentinel-ir-mcp [options] [folder ...]
                          command must be written as ./setup, ./doctor or ./guide. Without folders the
                          server uses the MCP roots offered by the client; if the
                          client offers none, only analyze_code works.
-  --max-file-bytes <n>   Largest file to analyze (default ${DEFAULT_LIMITS.maxFileBytes})
+  --max-file-bytes <n>   Largest file to analyze (default ${DEFAULT_LIMITS.maxFileBytes}, max ${DEFAULT_LIMITS.hardMaxFileBytes})
+  --time-budget-ms <n>   analyze_directory starts no new file after this time (default ${DEFAULT_LIMITS.timeBudgetMs}, max ${DEFAULT_LIMITS.hardMaxTimeBudgetMs})
   --max-files <n>        Default file limit for analyze_directory (default ${DEFAULT_LIMITS.maxFiles}, max ${DEFAULT_LIMITS.hardMaxFiles})
   -h, --help             Show this help
   -v, --version          Show the version
@@ -36,6 +37,12 @@ function die(message) {
     process.exit(2);
 }
 
+const NUMBER_OPTIONS = {
+    "--max-file-bytes": ["maxFileBytes", DEFAULT_LIMITS.hardMaxFileBytes],
+    "--max-files": ["maxFiles", DEFAULT_LIMITS.hardMaxFiles],
+    "--time-budget-ms": ["timeBudgetMs", DEFAULT_LIMITS.hardMaxTimeBudgetMs]
+};
+
 function parseArgs(argv) {
     const opts = { roots: [] };
     for (let i = 0; i < argv.length; i++) {
@@ -44,12 +51,12 @@ function parseArgs(argv) {
         if (arg.startsWith("--") && arg.includes("=")) [arg, value] = [arg.slice(0, arg.indexOf("=")), arg.slice(arg.indexOf("=") + 1)];
         if (arg === "-h" || arg === "--help") { process.stdout.write(USAGE + "\n"); process.exit(0); }
         if (arg === "-v" || arg === "--version") { process.stdout.write(version + "\n"); process.exit(0); }
-        if (arg === "--max-file-bytes" || arg === "--max-files") {
+        if (Object.hasOwn(NUMBER_OPTIONS, arg)) {
+            const [key, max] = NUMBER_OPTIONS[arg];
             if (value === undefined) value = argv[++i];
             const n = Number(value);
-            const max = arg === "--max-files" ? DEFAULT_LIMITS.hardMaxFiles : Number.MAX_SAFE_INTEGER;
             if (!Number.isInteger(n) || n < 1 || n > max) die(`${arg} must be an integer between 1 and ${max}`);
-            opts[arg === "--max-files" ? "maxFiles" : "maxFileBytes"] = n;
+            opts[key] = n;
         } else if (arg.startsWith("-")) {
             die(`unknown option ${arg}`);
         } else {

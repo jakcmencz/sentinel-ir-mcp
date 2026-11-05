@@ -54,6 +54,7 @@ windows_compat:
     - node scripts/win-quote-probe.js; $quote = $LASTEXITCODE
     - node scripts/compat-smoke.js; $smoke = $LASTEXITCODE
     - node --test (Get-ChildItem test\*.test.js | ForEach-Object FullName); $tests = $LASTEXITCODE
+    - node scripts/size-probe.js
     - exit ($quote + $smoke + $tests)
   artifacts:
     when: always
