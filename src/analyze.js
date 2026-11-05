@@ -1,7 +1,7 @@
 "use strict";
 
 const fs = require("fs/promises");
-const { constants } = require("fs");
+const { constants, realpathSync } = require("fs");
 const path = require("path");
 const { analyzeAsync, compress } = require("sentinel-ir");
 const { AccessError, resolveInside, isInside, isSourceFile } = require("./paths");
@@ -30,7 +30,9 @@ async function readInside(full, roots, maxFileBytes, label) {
         if (opened.size > BigInt(maxFileBytes)) {
             throw new TooLargeError(`File too large: ${label} is ${opened.size} bytes, limit is ${maxFileBytes}`);
         }
-        const real = await fs.realpath(full);
+        // Same realpath as resolveInside: on Windows fs.promises.realpath
+        // expands 8.3 short names (GITLAB~1) and would never match the roots.
+        const real = realpathSync(full);
         const current = await fs.stat(real, { bigint: true });
         if (!roots.some((r) => isInside(real, r)) || current.dev !== opened.dev || current.ino !== opened.ino) {
             throw new AccessError(`Access denied: ${label} changed while it was being read`);
