@@ -34,10 +34,17 @@ of safety. Other languages are not supported yet. What is detected in Python
   swapped for a symlink between listing and reading is refused instead of read
   from outside the allowed folders. A file removed during a scan no longer
   fails the whole scan; it is listed in `skipped.unreadable`.
-- **Finite limits:** `--max-file-bytes` is capped at 4 MiB. Measured on Linux
-  with `sentinel-ir` 0.4.3: 4 MiB of JavaScript takes about 30 s and 3 GB of
-  memory, 8 MiB aborts the process.
-- **Time budget:** `analyze_directory` starts no new file after 40 s
+- **Finite limits:** `--max-file-bytes` is capped at 2 MiB. Valid JavaScript
+  with `sentinel-ir` 0.4.3:
+
+  | size | Linux | Windows CI (Node 20/22/24) |
+  |---|---|---|
+  | 1 MiB | 4–5 s, 0.9 GB | 13–23 s, 0.8 GB |
+  | 2 MiB | 10–14 s, 1.6 GB | 29–40 s, 1.5 GB |
+  | 4 MiB | 25–29 s, 3 GB | process aborts |
+
+  A file above 2 MiB can take longer than the 60 s request timeout on its own.
+- **Time budget:** `analyze_directory` starts no new file after 30 s
   (`--time-budget-ms`). Then `timedOut` is `true` and the remaining files are
   listed in `notAnalyzed`. A file already being analyzed is not interrupted.
 - **Parser errors:** incomplete files carry `facts.parseError` with the line,
@@ -251,8 +258,8 @@ if the client offers them; if it offers none, only `analyze_code` works.
 ```text
 sentinel-ir-mcp [--max-file-bytes <n>] [--max-files <n>] [--time-budget-ms <n>] [folder ...]
 
-  --max-file-bytes <n>   largest file to analyze (default 1048576 = 1 MiB, max 4194304 = 4 MiB)
-  --time-budget-ms <n>   analyze_directory starts no new file after this (default 40000, max 600000)
+  --max-file-bytes <n>   largest file to analyze (default 1048576 = 1 MiB, max 2097152 = 2 MiB)
+  --time-budget-ms <n>   analyze_directory starts no new file after this (default 30000, max 600000)
   --max-files <n>        default file limit for analyze_directory (default 50, max 500)
 ```
 

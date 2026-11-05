@@ -110,7 +110,7 @@ test("--max-file-bytes and --time-budget-ms have finite ceilings", () => {
     assert.equal(run("--max-file-bytes", String(DEFAULT_LIMITS.hardMaxFileBytes)).status, 0);
     const over = run("--max-file-bytes", String(DEFAULT_LIMITS.hardMaxFileBytes + 1));
     assert.equal(over.status, 2);
-    assert.match(over.stderr, /between 1 and 4194304/);
+    assert.match(over.stderr, /between 1 and 2097152/);
     assert.equal(run("--max-file-bytes=9007199254740991").status, 2);
     assert.equal(run("--time-budget-ms", "1000").status, 0);
     assert.equal(run("--time-budget-ms", "0").status, 2);
@@ -121,6 +121,6 @@ test("--max-file-bytes and --time-budget-ms have finite ceilings", () => {
 test("createServer clamps limits passed in code", () => {
     const server = createServer({ maxFileBytes: Number.MAX_SAFE_INTEGER, timeBudgetMs: 1e12 });
     const tools = server._registeredTools;
-    assert.match(tools.analyze_file.description, /over 4194304 bytes/);
+    assert.match(tools.analyze_file.description, /over 2097152 bytes/);
     assert.match(tools.analyze_directory.description, /after 600 s/);
 });

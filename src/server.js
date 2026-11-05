@@ -8,10 +8,11 @@ const { analyzeCode, analyzeFile, analyzeDirectory } = require("./analyze");
 
 const DEFAULT_LIMITS = Object.freeze({
     maxFileBytes: 1024 * 1024,
-    // Larger JavaScript files need gigabytes of memory; 8 MiB aborts the process.
-    hardMaxFileBytes: 4 * 1024 * 1024,
-    // Below the 60 s request timeout of MCP SDK clients.
-    timeBudgetMs: 40000,
+    // 4 MiB of JavaScript aborts the process on Windows CI (3 GB on Linux).
+    hardMaxFileBytes: 2 * 1024 * 1024,
+    // Plus one 1 MiB file (up to 23 s on Windows CI) stays below the 60 s
+    // request timeout of MCP SDK clients.
+    timeBudgetMs: 30000,
     hardMaxTimeBudgetMs: 600000,
     maxFiles: 50,
     hardMaxFiles: 500
