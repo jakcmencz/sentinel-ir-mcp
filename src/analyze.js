@@ -6,8 +6,9 @@ const path = require("path");
 const { analyzeAsync, compress } = require("sentinel-ir");
 const { AccessError, resolveInside, isInside, isSourceFile } = require("./paths");
 
-// Not defined on Windows; the inode check below covers that case.
-const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW || 0);
+// O_NONBLOCK: opening a FIFO swapped in after listing must not block the
+// server forever. Neither flag exists on Windows; the inode check covers that.
+const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW || 0) | (constants.O_NONBLOCK || 0);
 
 class TooLargeError extends AccessError {}
 

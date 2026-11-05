@@ -65,6 +65,17 @@ test("swapping a listed file for a symlink never leaks the outside file", async 
     }
 });
 
+test("a FIFO at a listed path is refused without blocking", { skip: process.platform === "win32" }, async () => {
+    const fx = makeFixture();
+    try {
+        const fifo = path.join(fx.project, "pipe.js");
+        spawnSync("mkfifo", [fifo]);
+        await assert.rejects(readInside(fifo, [fx.project], 1024, "pipe.js"), /Not a file/);
+    } finally {
+        fx.cleanup();
+    }
+});
+
 test("analyze_directory stops starting files when the time budget is spent", async () => {
     const fx = makeFixture();
     try {
