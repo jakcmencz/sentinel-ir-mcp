@@ -30,7 +30,10 @@ async function setup(sb, argv, extra = {}) {
         platform: extra.platform || "linux",
         cwd: extra.cwd || sb.project,
         isTTY: Boolean(extra.answer !== undefined),
-        prompt: extra.answer !== undefined ? async () => extra.answer : null,
+        questions: [],
+        prompt: extra.answer !== undefined
+            ? async (q) => (q.startsWith("Files or folders") ? (extra.excludeAnswer ?? "") : extra.answer)
+            : null,
         now: () => Date.UTC(2026, 9, 18, 12, 0, 0)
     };
     const code = await runCommand("setup", argv, io);

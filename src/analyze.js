@@ -5,6 +5,7 @@ const { constants, realpathSync } = require("fs");
 const path = require("path");
 const { analyzeAsync, compress } = require("sentinel-ir");
 const { AccessError, resolveInside, isInside, isSourceFile } = require("./paths");
+const { isExcluded, NONE } = require("./exclude");
 
 // O_NONBLOCK: opening a FIFO swapped in after listing must not block the
 // server forever. Neither flag exists on Windows; the inode check covers that.
@@ -12,12 +13,29 @@ const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW || 0) | (constants
 
 class TooLargeError extends AccessError {}
 class HardlinkError extends AccessError {}
+class ExcludedError extends AccessError {}
+
+function excludedError(label) {
+    return new ExcludedError(`Excluded by the user's settings: ${label}. Do not try to read it another way.`);
+}
+
+// Checked before the path is looked up, so the answer is the same whether or
+// not the excluded file exists, and again on the real path (symlinks, "..",
+// Windows short names, letter case).
+function resolveAllowed(requested, roots, excluder) {
+    if (excluder.active && roots.length && typeof requested === "string" && requested.trim() !== "" && !requested.includes("\0")) {
+        if (isExcluded(path.resolve(roots[0], requested), roots, excluder)) throw excludedError(requested);
+    }
+    const resolved = resolveInside(requested, roots);
+    if (isExcluded(resolved.real, roots, excluder)) throw excludedError(requested);
+    return resolved;
+}
 
 // Reads the file that is actually opened, not the one checked earlier: the
 // path may be swapped for a symlink between the check and the read. The open
 // handle must be a regular file whose inode is the one now found at a real
 // path inside the allowed folders, and at most maxFileBytes are read.
-async function readInside(full, roots, maxFileBytes, label) {
+async function readInside(full, roots, maxFileBytes, label, excluder = NONE) {
     let handle;
     try {
         handle = await fs.open(full, OPEN_FLAGS);
@@ -38,6 +56,7 @@ async function readInside(full, roots, maxFileBytes, label) {
         if (!roots.some((r) => isInside(real, r)) || current.dev !== opened.dev || current.ino !== opened.ino) {
             throw new AccessError(`Access denied: ${label} changed while it was being read`);
         }
+        if (isExcluded(real, roots, excluder)) throw excludedError(label);
         // Another name of the same file may lie outside the allowed folders,
         // and where it lies cannot be found out, so such files are refused.
         // Both counts: the handle's alone can read 1 while the path is swapped.
@@ -60,6 +79,10 @@ async function readInside(full, roots, maxFileBytes, label) {
     }
 }
 
+function realNative(p) {
+    try { return realpathSync.native(p); } catch { return p; }
+}
+
 const SKIP_DIRS = new Set(["node_modules", ".git", "__pycache__", "venv", "site-packages"]);
 const RISK_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
 
@@ -71,8 +94,8 @@ async function analyzeCode(code, target, language) {
     return compress(ir);
 }
 
-async function analyzeFile(requested, roots, { maxFileBytes }) {
-    const { real, display } = resolveInside(requested, roots);
+async function analyzeFile(requested, roots, { maxFileBytes, excluder = NONE }) {
+    const { real, display } = resolveAllowed(requested, roots, excluder);
     const stat = await fs.stat(real);
     if (!stat.isFile()) throw new AccessError(`Not a file: ${requested}`);
     if (!isSourceFile(real)) {
@@ -81,15 +104,19 @@ async function analyzeFile(requested, roots, { maxFileBytes }) {
     if (stat.size > maxFileBytes) {
         throw new AccessError(`File too large: ${requested} is ${stat.size} bytes, limit is ${maxFileBytes}`);
     }
-    const code = await readInside(real, roots, maxFileBytes, requested);
+    const code = await readInside(real, roots, maxFileBytes, requested, excluder);
     return analyzeCode(code, display);
 }
 
 // Breadth-first, sorted walk. Symlinks are never followed; node_modules, .git,
-// __pycache__, venv, site-packages and hidden folders are skipped.
-async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive }) {
+// __pycache__, venv, site-packages and hidden folders are skipped. Excluded
+// files and folders are only counted: their names can be private too.
+async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive, excluder = NONE }) {
     const files = [];
-    const skipped = { tooLarge: [], symlinks: 0, unreadable: [], hardlinks: [] };
+    const skipped = { excluded: 0, tooLarge: [], symlinks: 0, unreadable: [], hardlinks: [] };
+    // Exclusions match the real names: on Windows dir may be spelled with
+    // short names (SRC~1) that the patterns do not know.
+    const prefix = excluder.active ? path.relative(realNative(root), realNative(dir)) : "";
     let truncated = false;
     const queue = [dir];
     while (queue.length && !truncated) {
@@ -107,7 +134,9 @@ async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive }) {
         for (const entry of entries) {
             const full = path.join(current, entry.name);
             const rel = path.relative(root, full).split(path.sep).join("/");
-            if (entry.isSymbolicLink()) {
+            if (excluder.active && excluder.matches(path.join(prefix, path.relative(dir, full)))) {
+                skipped.excluded++;
+            } else if (entry.isSymbolicLink()) {
                 skipped.symlinks++;
             } else if (entry.isDirectory()) {
                 if (recursive && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith(".")) queue.push(full);
@@ -192,14 +221,14 @@ function fullEntry(rel, ir) {
 async function analyzeDirectory(
     requested,
     roots,
-    { maxFiles, maxFileBytes, recursive = true, timeBudgetMs = Infinity, detail = "summary" }
+    { maxFiles, maxFileBytes, recursive = true, timeBudgetMs = Infinity, detail = "summary", excluder = NONE }
 ) {
     const started = Date.now();
-    const { real, root, display } = resolveInside(requested, roots);
+    const { real, root, display } = resolveAllowed(requested, roots, excluder);
     const stat = await fs.stat(real);
     if (!stat.isDirectory()) throw new AccessError(`Not a folder: ${requested}`);
 
-    const { files, skipped, truncated } = await collectFiles(real, root, { maxFiles, maxFileBytes, recursive });
+    const { files, skipped, truncated } = await collectFiles(real, root, { maxFiles, maxFileBytes, recursive, excluder });
     const results = [];
     const notAnalyzed = [];
     for (const { full, rel } of files) {
@@ -212,8 +241,12 @@ async function analyzeDirectory(
         // One file that cannot be read or analyzed must not hide the others.
         let ir;
         try {
-            ir = await analyzeCode(await readInside(full, [root], maxFileBytes, rel), rel);
+            ir = await analyzeCode(await readInside(full, [root], maxFileBytes, rel, excluder), rel);
         } catch (err) {
+            if (err instanceof ExcludedError) {
+                skipped.excluded++;
+                continue;
+            }
             const list = err instanceof TooLargeError ? skipped.tooLarge
                 : err instanceof HardlinkError ? skipped.hardlinks : skipped.unreadable;
             list.push(rel);

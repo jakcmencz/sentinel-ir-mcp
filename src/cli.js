@@ -9,13 +9,18 @@ const { CLIENT_NAMES, PACKAGE_SPEC } = require("./clients");
 const COMMANDS = Object.freeze(["setup", "doctor", "guide"]);
 
 const HELP = {
-    setup: `Usage: sentinel-ir-mcp setup [--client <name>] [--project <folder>] [--global] [--config <file>] [--dry-run] [--yes]
+    setup: `Usage: sentinel-ir-mcp setup [--client <name>] [--project <folder>] [--exclude <name>]... [--no-exclude] [--global] [--config <file>] [--dry-run] [--yes]
 
 Adds a "sentinel-ir" server to an AI client's MCP config. Shows the change first,
 backs up the old file and touches only the "sentinel-ir" entry.
 
   --client <name>     ${CLIENT_NAMES.join(", ")}
   --project <folder>  folder the agent may read (default: current folder)
+  --exclude <name>    a file or folder the agent must not read; repeat for more.
+                      secrets = any file or folder named so, config/prod.js = this
+                      path, *.min.js = by mask. Without it, setup asks (Enter = none)
+                      and running setup again keeps the current list.
+  --no-exclude        remove all exclusions
   --global            Cursor only: ~/.cursor/mcp.json instead of <project>/.cursor/mcp.json
   --config <file>     write this config file instead of the client's default
   --dry-run           show the change, write nothing
@@ -30,8 +35,13 @@ Prints short instructions for AI agents (for AGENTS.md or client rules).
 Nothing is written.`
 };
 
+const REPEATABLE = new Set(["--exclude"]);
+
 const FLAGS = {
-    setup: { "--client": "client", "--project": "project", "--config": "config", "--global": true, "--dry-run": true, "--yes": true, "-y": true },
+    setup: {
+        "--client": "client", "--project": "project", "--config": "config", "--exclude": "exclude",
+        "--no-exclude": true, "--global": true, "--dry-run": true, "--yes": true, "-y": true
+    },
     doctor: { "--client": "client", "--project": "project", "--config": "config", "--global": true, "--json": true },
     guide: {}
 };
@@ -39,7 +49,7 @@ const FLAGS = {
 class UsageError extends Error {}
 
 function camel(flag) {
-    return { "-y": "yes", "--dry-run": "dryRun" }[flag] || flag.replace(/^--/, "");
+    return { "-y": "yes", "--dry-run": "dryRun", "--no-exclude": "noExclude" }[flag] || flag.replace(/^--/, "");
 }
 
 function parse(command, argv) {
@@ -57,7 +67,8 @@ function parse(command, argv) {
         } else {
             if (value === undefined) value = argv[++i];
             if (value === undefined || value === "") throw new UsageError(`${arg} needs a value`);
-            opts[spec[arg]] = value;
+            if (REPEATABLE.has(arg)) (opts[spec[arg]] ||= []).push(value);
+            else opts[spec[arg]] = value;
         }
     }
     return opts;
