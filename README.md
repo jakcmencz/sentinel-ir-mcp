@@ -25,6 +25,26 @@ of safety. Other languages are not supported yet. What is detected in Python
 (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.4.2** makes `analyze_directory` short by default:
+
+- **Short entries:** each file is `{path, risk, analysisStatus, language,
+  lines, operations, riskSignals}`, plus `moreRiskSignals` and `parseError`
+  when they apply. `riskSignals` are up to 3 `kind:code@line` signals that set
+  the file's risk level (code cut to 120 characters). `analyze_file` still
+  returns the full IR; `detail: "full"` returns the 0.4.1 entries.
+
+  | folder (all files) | 0.4.1 | 0.4.2 default |
+  |---|---:|---:|
+  | a 190-file Node project | 96,550 chars (~24,100 tokens) | 35,856 chars (~9,000 tokens) |
+  | MCP SDK `dist/cjs` (174 files) | 79,945 chars (~20,000 tokens) | 29,046 chars (~7,300 tokens) |
+
+  Tokens estimated as chars / 4. The tool list the client loads once grows
+  from 4,103 to 5,322 chars.
+- **Risk explained to the agent:** tool descriptions say that risk is about
+  capabilities, not vulnerabilities; that `medium` (file writes, network,
+  crypto) is normal in backend code; and that values are not tracked, so
+  `readFileSync(req.query.f)` is `low`.
+
 **0.4.1** uses `sentinel-ir` 0.4.3:
 
 - **Faster on large JavaScript:** a valid 1 MiB file takes about 5 s instead
@@ -69,7 +89,7 @@ of safety. Other languages are not supported yet. What is detected in Python
 |---|---|---|
 | `analyze_code` | `code` (string), optional `target` (file name) | compact IR of the given source |
 | `analyze_file` | `path` | compact IR of one file inside the allowed folders |
-| `analyze_directory` | optional `path`, `max_files` (default 50, max 500), `recursive` (default `true`) | one IR summary per file, sorted from highest to lowest risk, plus `riskCounts`, `statusCounts` and `incomplete` (paths whose analysis did not finish; check them separately, their low risk is not evidence of safety); files that could not be read are listed in `skipped.unreadable` and are not counted as analyzed, `truncated` and `skipped` |
+| `analyze_directory` | optional `path`, `max_files` (default 50, max 500), `recursive` (default `true`), `detail` (`"summary"` default, or `"full"`) | one short entry per file (path, risk, status, language, lines, operations, up to 3 risk signals; `"full"`: all facts), sorted from highest to lowest risk, plus `riskCounts`, `statusCounts` and `incomplete` (paths whose analysis did not finish; check them separately, their low risk is not evidence of safety); files that could not be read are listed in `skipped.unreadable` and are not counted as analyzed, `truncated` and `skipped` |
 
 Every tool returns the result twice: as JSON text (for clients that only read
 text) and as `structuredContent`. All three are annotated

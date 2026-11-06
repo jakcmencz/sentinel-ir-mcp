@@ -133,7 +133,67 @@ async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive }) {
     return { files, skipped, truncated };
 }
 
-async function analyzeDirectory(requested, roots, { maxFiles, maxFileBytes, recursive = true, timeBudgetMs = Infinity }) {
+// Signal kinds by the risk level they set (sentinel-ir riskOf). Kinds that do
+// not set a level (process_exit, secret_access) are only in analyze_file.
+const SIGNAL_RISK = {
+    dynamic_code: "critical", process_spawn: "critical", child_process_import: "critical",
+    unsafe_deserialization: "critical", native_code: "critical",
+    destructive_fs: "high",
+    disk_write: "medium", outbound_http: "medium", inbound_http: "medium",
+    crypto_use: "medium", secret_comparison: "medium"
+};
+const SUMMARY_SIGNALS = 3;
+const SIGNAL_CHARS = 120;
+
+// Signals quote code (a 5000-character identifier stays 5000 characters), so
+// the code part is cut; kind and line are kept.
+function shortSignal(signal) {
+    if (signal.length <= SIGNAL_CHARS) return signal;
+    const at = signal.lastIndexOf("@");
+    const line = at > 0 ? signal.slice(at) : "";
+    let end = SIGNAL_CHARS - line.length - 1;
+    const unit = signal.charCodeAt(end - 1);
+    if (unit >= 0xd800 && unit <= 0xdbff) end--;
+    return signal.slice(0, end) + "\u2026" + line;
+}
+
+// The short entry analyze_directory returns by default: enough to rank files
+// and see why each has its risk, without the full facts.
+function summaryEntry(rel, ir) {
+    const risk = ir.world.risk;
+    const signals = (ir.facts.riskSignals || []).filter((s) => SIGNAL_RISK[s.slice(0, s.indexOf(":"))] === risk);
+    const entry = {
+        path: rel,
+        risk,
+        analysisStatus: ir.analysisStatus,
+        language: ir.language,
+        lines: ir.summary.lines,
+        operations: ir.facts.operations || [],
+        riskSignals: signals.slice(0, SUMMARY_SIGNALS).map(shortSignal)
+    };
+    if (signals.length > SUMMARY_SIGNALS) entry.moreRiskSignals = signals.length - SUMMARY_SIGNALS;
+    if (ir.facts.parseError) entry.parseError = ir.facts.parseError;
+    return entry;
+}
+
+function fullEntry(rel, ir) {
+    return {
+        path: rel,
+        analysisStatus: ir.analysisStatus,
+        language: ir.language,
+        risk: ir.world.risk,
+        objective: ir.mission.objective,
+        forbidden: ir.forbidden,
+        lines: ir.summary.lines,
+        facts: ir.facts
+    };
+}
+
+async function analyzeDirectory(
+    requested,
+    roots,
+    { maxFiles, maxFileBytes, recursive = true, timeBudgetMs = Infinity, detail = "summary" }
+) {
     const started = Date.now();
     const { real, root, display } = resolveInside(requested, roots);
     const stat = await fs.stat(real);
@@ -159,16 +219,7 @@ async function analyzeDirectory(requested, roots, { maxFiles, maxFileBytes, recu
             list.push(rel);
             continue;
         }
-        results.push({
-            path: rel,
-            analysisStatus: ir.analysisStatus,
-            language: ir.language,
-            risk: ir.world.risk,
-            objective: ir.mission.objective,
-            forbidden: ir.forbidden,
-            lines: ir.summary.lines,
-            facts: ir.facts
-        });
+        results.push(detail === "full" ? fullEntry(rel, ir) : summaryEntry(rel, ir));
     }
     results.sort((a, b) =>
         ((RISK_ORDER[a.risk] ?? 9) - (RISK_ORDER[b.risk] ?? 9)) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -186,6 +237,7 @@ async function analyzeDirectory(requested, roots, { maxFiles, maxFileBytes, recu
         analyzed: results.length,
         truncated,
         maxFiles,
+        detail,
         timedOut: notAnalyzed.length > 0,
         notAnalyzed,
         skipped,
@@ -196,4 +248,4 @@ async function analyzeDirectory(requested, roots, { maxFiles, maxFileBytes, recu
     };
 }
 
-module.exports = { analyzeCode, analyzeFile, analyzeDirectory, readInside, SKIP_DIRS };
+module.exports = { analyzeCode, analyzeFile, analyzeDirectory, readInside, summaryEntry, SKIP_DIRS };
