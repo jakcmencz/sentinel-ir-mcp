@@ -7,7 +7,7 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 const { analyzeDirectory, readInside } = require("../src/analyze");
 const { createServer, DEFAULT_LIMITS } = require("../src/server");
-const { BIN, makeFixture } = require("./helpers");
+const { BIN, makeFixture, connectStdio, call } = require("./helpers");
 
 const MARKER = "OUTSIDE_SECRET_MARKER";
 const LIMITS = { maxFiles: 50, maxFileBytes: 1024 * 1024 };
@@ -60,6 +60,33 @@ test("swapping a listed file for a symlink never leaks the outside file", async 
             stop = true;
         }
         assert.ok(swaps > 100, `only ${swaps} swaps`);
+    } finally {
+        fx.cleanup();
+    }
+});
+
+test("a hard link to a file outside the folder is refused", async (t) => {
+    const fx = makeFixture();
+    try {
+        const link = path.join(fx.project, "hard.js");
+        try {
+            fs.linkSync(path.join(fx.outside, "private.js"), link);
+        } catch {
+            return t.skip("hard links not permitted");
+        }
+        await assert.rejects(readInside(link, [fx.project], 1024, "hard.js"), /2 hard links/);
+        const out = await analyzeDirectory(".", [fx.project], LIMITS);
+        assert.deepEqual(out.skipped.hardlinks, ["hard.js"]);
+        assert.ok(!out.files.some((f) => f.path === "hard.js"));
+        assert.deepEqual(out.skipped.unreadable, []);
+        const server = await connectStdio([fx.project]);
+        try {
+            const r = await call(server, "analyze_file", { path: "hard.js" });
+            assert.equal(r.isError, true);
+            assert.match(r.text, /hard links/);
+        } finally {
+            await server.close();
+        }
     } finally {
         fx.cleanup();
     }

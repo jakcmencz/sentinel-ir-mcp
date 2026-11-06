@@ -11,6 +11,7 @@ const { AccessError, resolveInside, isInside, isSourceFile } = require("./paths"
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW || 0) | (constants.O_NONBLOCK || 0);
 
 class TooLargeError extends AccessError {}
+class HardlinkError extends AccessError {}
 
 // Reads the file that is actually opened, not the one checked earlier: the
 // path may be swapped for a symlink between the check and the read. The open
@@ -27,6 +28,11 @@ async function readInside(full, roots, maxFileBytes, label) {
     try {
         const opened = await handle.stat({ bigint: true });
         if (!opened.isFile()) throw new AccessError(`Not a file: ${label}`);
+        // Another name of the same file may lie outside the allowed folders,
+        // and where it lies cannot be found out, so such files are refused.
+        if (opened.nlink > 1n) {
+            throw new HardlinkError(`Access denied: ${label} has ${opened.nlink} hard links; files with more than one are refused`);
+        }
         if (opened.size > BigInt(maxFileBytes)) {
             throw new TooLargeError(`File too large: ${label} is ${opened.size} bytes, limit is ${maxFileBytes}`);
         }
@@ -81,7 +87,7 @@ async function analyzeFile(requested, roots, { maxFileBytes }) {
 // __pycache__, venv, site-packages and hidden folders are skipped.
 async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive }) {
     const files = [];
-    const skipped = { tooLarge: [], symlinks: 0, unreadable: [] };
+    const skipped = { tooLarge: [], symlinks: 0, unreadable: [], hardlinks: [] };
     let truncated = false;
     const queue = [dir];
     while (queue.length && !truncated) {
@@ -146,7 +152,9 @@ async function analyzeDirectory(requested, roots, { maxFiles, maxFileBytes, recu
         try {
             ir = await analyzeCode(await readInside(full, [root], maxFileBytes, rel), rel);
         } catch (err) {
-            (err instanceof TooLargeError ? skipped.tooLarge : skipped.unreadable).push(rel);
+            const list = err instanceof TooLargeError ? skipped.tooLarge
+                : err instanceof HardlinkError ? skipped.hardlinks : skipped.unreadable;
+            list.push(rel);
             continue;
         }
         results.push({

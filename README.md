@@ -33,7 +33,8 @@ of safety. Other languages are not supported yet. What is detected in Python
 - **Read-time check:** files are opened first and then checked, so a file
   swapped for a symlink between listing and reading is refused instead of read
   from outside the allowed folders. A file removed during a scan no longer
-  fails the whole scan; it is listed in `skipped.unreadable`.
+  fails the whole scan; it is listed in `skipped.unreadable`. Files with more
+  than one hard link are refused (`skipped.hardlinks`).
 - **Finite limits:** `--max-file-bytes` is capped at 2 MiB. Valid JavaScript
   with `sentinel-ir` 0.4.3:
 
@@ -278,6 +279,11 @@ sentinel-ir-mcp [--max-file-bytes <n>] [--max-files <n>] [--time-budget-ms <n>] 
   when the time budget is spent (`timedOut: true`, rest in `notAnalyzed`).
   Each file is checked again when it is opened: it must still be a regular
   file inside the allowed folders.
+- **Hard links are refused.** A hard link inside the folder can point to a
+  file outside it, and the other names of a file cannot be found. So files
+  with more than one hard link are refused (`analyze_file` error,
+  `skipped.hardlinks` in `analyze_directory`). This also refuses harmless hard
+  links, e.g. pnpm's in `node_modules`.
 - **The IR is still untrusted text.** Comments, string bodies and function
   bodies are not copied into it, so instructions hidden there do not reach the
   agent through the IR. It does contain identifiers and some literals from the

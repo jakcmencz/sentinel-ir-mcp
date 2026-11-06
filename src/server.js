@@ -119,6 +119,7 @@ function createServer(options = {}) {
             "you when there were more. 'incomplete' lists files whose analysis did not finish (e.g. parse errors); " +
             "their risk is not reliable, check them separately. statusCounts counts complete vs incomplete. " +
             "Files that could not be read are listed in skipped.unreadable and are not counted as analyzed. " +
+            "Files with more than one hard link are refused and listed in skipped.hardlinks. " +
             `No new file is started after ${limits.timeBudgetMs / 1000} s: then timedOut is true and the remaining files are in notAnalyzed; ` +
             "call again on a subfolder or use analyze_file for them. " +
             "Use analyze_file for the full IR of a single file. " + UNTRUSTED_NOTE,
