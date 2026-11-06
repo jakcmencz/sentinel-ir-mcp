@@ -392,8 +392,8 @@ test("Windows: a short 8.3 name does not get past an exclusion", { skip: process
     try {
         fs.mkdirSync(path.join(fx.project, "privatefolder"));
         fs.writeFileSync(path.join(fx.project, "privatefolder", "k.js"), `module.exports = "${MARKER}";\n`);
-        const r = spawnSync("cmd", ["/c", `for %I in ("${path.join(fx.project, "privatefolder")}") do @echo %~sI`], { encoding: "utf8" });
-        const short = path.basename(r.stdout.trim());
+        const r = spawnSync("cmd", ["/c", "for %I in (privatefolder) do @echo %~sI"], { cwd: fx.project, encoding: "utf8" });
+        const short = path.win32.basename(String(r.stdout).trim().replace(/"/g, ""));
         if (!short || short.toLowerCase() === "privatefolder") return t.skip("8.3 names are off on this volume");
         const e = excl(["privatefolder"], true);
         await assert.rejects(analyzeFile(`${short}/k.js`, [fx.project], e), /Excluded/);
