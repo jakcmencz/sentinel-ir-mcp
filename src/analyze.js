@@ -28,11 +28,6 @@ async function readInside(full, roots, maxFileBytes, label) {
     try {
         const opened = await handle.stat({ bigint: true });
         if (!opened.isFile()) throw new AccessError(`Not a file: ${label}`);
-        // Another name of the same file may lie outside the allowed folders,
-        // and where it lies cannot be found out, so such files are refused.
-        if (opened.nlink > 1n) {
-            throw new HardlinkError(`Access denied: ${label} has ${opened.nlink} hard links; files with more than one are refused`);
-        }
         if (opened.size > BigInt(maxFileBytes)) {
             throw new TooLargeError(`File too large: ${label} is ${opened.size} bytes, limit is ${maxFileBytes}`);
         }
@@ -42,6 +37,13 @@ async function readInside(full, roots, maxFileBytes, label) {
         const current = await fs.stat(real, { bigint: true });
         if (!roots.some((r) => isInside(real, r)) || current.dev !== opened.dev || current.ino !== opened.ino) {
             throw new AccessError(`Access denied: ${label} changed while it was being read`);
+        }
+        // Another name of the same file may lie outside the allowed folders,
+        // and where it lies cannot be found out, so such files are refused.
+        // Both counts: the handle's alone can read 1 while the path is swapped.
+        const links = opened.nlink > current.nlink ? opened.nlink : current.nlink;
+        if (links > 1n) {
+            throw new HardlinkError(`Access denied: ${label} has ${links} hard links; files with more than one are refused`);
         }
         const buffer = Buffer.alloc(Number(opened.size) + 1);
         let length = 0;
