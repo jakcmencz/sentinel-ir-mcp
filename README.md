@@ -25,6 +25,20 @@ of safety. Other languages are not supported yet. What is detected in Python
 (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.4.3** lets you exclude files and folders:
+
+- **One question in `setup`:** *"Files or folders the agent must not read"*,
+  e.g. `secrets, dist, *.min.js` (Enter = none). Or `setup --exclude secrets
+  --exclude dist`. `setup` writes them into the client config, so there is no
+  JSON to edit; running it again keeps them, `--no-exclude` removes them.
+- **Set by you only.** The agent cannot change them, and the analyzed project
+  cannot either: there is no `.sentinelignore`, because a repository could use
+  it to hide its own files.
+- `analyze_file` refuses an excluded path whether or not it exists;
+  `analyze_directory` only counts excluded entries in `skipped.excluded`,
+  because their names can be private too. `doctor` lists the exclusions and
+  how many files and folders they skip in the project.
+
 **0.4.2** makes `analyze_directory` short by default:
 
 - **Short entries:** each file is `{path, risk, analysisStatus, language,
@@ -89,7 +103,7 @@ of safety. Other languages are not supported yet. What is detected in Python
 |---|---|---|
 | `analyze_code` | `code` (string), optional `target` (file name) | compact IR of the given source |
 | `analyze_file` | `path` | compact IR of one file inside the allowed folders |
-| `analyze_directory` | optional `path`, `max_files` (default 50, max 500), `recursive` (default `true`), `detail` (`"summary"` default, or `"full"`) | one short entry per file (path, risk, status, language, lines, operations, up to 3 risk signals; `"full"`: all facts), sorted from highest to lowest risk, plus `riskCounts`, `statusCounts` and `incomplete` (paths whose analysis did not finish; check them separately, their low risk is not evidence of safety); files that could not be read are listed in `skipped.unreadable` and are not counted as analyzed, `truncated` and `skipped` |
+| `analyze_directory` | optional `path`, `max_files` (default 50, max 500), `recursive` (default `true`), `detail` (`"summary"` default, or `"full"`) | one short entry per file (path, risk, status, language, lines, operations, up to 3 risk signals; `"full"`: all facts), sorted from highest to lowest risk, plus `riskCounts`, `statusCounts` and `incomplete` (paths whose analysis did not finish; check them separately, their low risk is not evidence of safety); files that could not be read are listed in `skipped.unreadable` and are not counted as analyzed; excluded files and folders are only counted in `skipped.excluded`; `truncated` and `skipped` |
 
 Every tool returns the result twice: as JSON text (for clients that only read
 text) and as `structuredContent`. All three are annotated
@@ -144,6 +158,8 @@ npx -y sentinel-ir-mcp@0.4 guide                     # optional: text for AGENTS
   refuses your home folder or a whole disk;
 - writes `sentinel-ir-mcp@0.4`, so clients get 0.4.x fixes but no unexpected
   new features;
+- asks which files or folders the agent must not read (`--exclude <name>`,
+  repeatable, skips the question; see [Excluding files](#excluding-files));
 - for VS Code and Claude Code it writes nothing and prints their own install
   command (`code --add-mcp ...`, `claude mcp add ...`) instead.
 
@@ -164,7 +180,9 @@ command. What was measured on which system: [COMPATIBILITY.md](COMPATIBILITY.md)
 `"sentinel-ir"` entry that starts `sentinel-ir-mcp`, existing folders), then
 starts **its own** server with the same folders, performs a real MCP
 handshake, expects exactly the three tools and calls `analyze_directory` with
-`max_files: 1`. It never runs the command stored in the client config. Exit
+`max_files: 1`. It lists your exclusions, how many files and folders they skip
+in the project right now, and warns about one that matches nothing (a typo).
+It never runs the command stored in the client config. Exit
 code 0 when everything passes, 1 otherwise; `--json` gives a machine-readable
 report.
 
@@ -274,10 +292,37 @@ Without folder arguments the server uses the client's
 [MCP roots](https://modelcontextprotocol.io/specification/latest/client/roots)
 if the client offers them; if it offers none, only `analyze_code` works.
 
+### Excluding files
+
+```bash
+npx -y sentinel-ir-mcp@0.4 setup --client cursor --exclude secrets --exclude "*.min.js"
+```
+
+| you write | excludes |
+|---|---|
+| `secrets` | every file or folder named `secrets`, anywhere in the project, with everything inside |
+| `config/prod.js` | only this path, relative to the project folder |
+| `*.min.js` | files by mask; `*` and `?` stay within one name |
+| `generated/**/out` | `**` stands for any number of folders |
+
+- Only additions: there is no `!` to re-include something. Absolute paths,
+  `..` and the characters `" & | < > ^ % !` are refused.
+- Windows `\` works like `/`. On Windows and macOS letter case does not
+  matter (`SECRETS/a.js` is excluded by `secrets`), on Linux it does.
+- The check uses the real path, so `lib/../secrets/a.js`, a symlink to an
+  excluded file and a Windows short name (`SECRE~1`) are refused too. It is
+  repeated when the file is opened.
+- `analyze_code` is not affected: it analyzes text the agent already has.
+
+The exclusions only bind this server. An agent that can read files with
+other tools of its client is told about them, but this server cannot stop it.
+
 ### Options
 
 ```text
-sentinel-ir-mcp [--max-file-bytes <n>] [--max-files <n>] [--time-budget-ms <n>] [folder ...]
+sentinel-ir-mcp [--exclude <name>]... [--max-file-bytes <n>] [--max-files <n>] [--time-budget-ms <n>] [folder ...]
+
+  --exclude <name>       file or folder the file tools refuse (repeatable, max 100); see Excluding files
 
   --max-file-bytes <n>   largest file to analyze (default 1048576 = 1 MiB, max 2097152 = 2 MiB)
   --time-budget-ms <n>   analyze_directory starts no new file after this (default 30000, max 600000)
@@ -294,6 +339,10 @@ sentinel-ir-mcp [--max-file-bytes <n>] [--max-files <n>] [--time-budget-ms <n>] 
   (symlinks followed) and must lie inside a folder given on the command line,
   or, without folder arguments, inside one of the client's MCP roots. `../`,
   absolute paths elsewhere and symlinks pointing outside are refused.
+- **Exclusions are yours.** They come only from the command line the client
+  starts (written by `setup`), never from the agent or from files in the
+  project. Excluded paths are refused by `analyze_file` and counted, not
+  named, in `skipped.excluded`.
 - **`analyze_directory`** skips `node_modules`, `.git`, hidden folders and
   every symlink, and stops after `max_files` files (`truncated: true`) or
   when the time budget is spent (`timedOut: true`, rest in `notAnalyzed`).

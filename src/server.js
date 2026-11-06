@@ -5,6 +5,7 @@ const { z } = require("zod");
 const { version } = require("../package.json");
 const { AccessError, canonicalRoots, rootsFromUris } = require("./paths");
 const { analyzeCode, analyzeFile, analyzeDirectory } = require("./analyze");
+const { createExcluder } = require("./exclude");
 
 const DEFAULT_LIMITS = Object.freeze({
     maxFileBytes: 1024 * 1024,
@@ -69,7 +70,13 @@ async function guarded(fn) {
     }
 }
 
+const EXCLUDE_NOTE =
+    "The user excluded some files and folders: analyze_file refuses them and analyze_directory only counts them in " +
+    "skipped.excluded. The user wants them left alone, so do not read them another way.";
+
 function createServer(options = {}) {
+    const excluder = createExcluder(options.exclude || []);
+    const excludeNote = excluder.active ? " " + EXCLUDE_NOTE : "";
     const limits = {
         maxFileBytes: Math.min(options.maxFileBytes ?? DEFAULT_LIMITS.maxFileBytes, DEFAULT_LIMITS.hardMaxFileBytes),
         maxFiles: options.maxFiles ?? DEFAULT_LIMITS.maxFiles,
@@ -77,7 +84,7 @@ function createServer(options = {}) {
     };
     const fixedRoots = canonicalRoots(options.roots || []);
 
-    const server = new McpServer({ name: "sentinel-ir-mcp", version }, { instructions: INSTRUCTIONS });
+    const server = new McpServer({ name: "sentinel-ir-mcp", version }, { instructions: INSTRUCTIONS + excludeNote });
 
     // Folders given on the command line win. Otherwise ask the client for its
     // MCP roots on every call (they can change while the session runs).
@@ -112,12 +119,12 @@ function createServer(options = {}) {
         description:
             "Read one .js/.mjs/.cjs/.ts/.mts/.cts/.tsx/.py/.pyi file inside the allowed folders and return its compact structural IR. " +
             `Relative paths are resolved against the first allowed folder. Files over ${limits.maxFileBytes} bytes are refused. ` +
-            UNTRUSTED_NOTE,
+            UNTRUSTED_NOTE + excludeNote,
         inputSchema: {
             path: z.string().min(1).describe("File path, absolute or relative to the first allowed folder")
         },
         annotations: { title: "Analyze a JavaScript, TypeScript or Python file", ...READ_ONLY }
-    }, async ({ path }) => guarded(async () => analyzeFile(path, await allowedRoots(), limits)));
+    }, async ({ path }) => guarded(async () => analyzeFile(path, await allowedRoots(), { ...limits, excluder })));
 
     server.registerTool("analyze_directory", {
         title: "Analyze a folder of JavaScript, TypeScript and Python files",
@@ -136,7 +143,7 @@ function createServer(options = {}) {
             "Files with more than one hard link are refused and listed in skipped.hardlinks. " +
             `No new file is started after ${limits.timeBudgetMs / 1000} s: then timedOut is true and the remaining files are in notAnalyzed; ` +
             "call again on a subfolder or use analyze_file for them. " +
-            "Use analyze_file for the full IR of a single file. " + UNTRUSTED_NOTE,
+            "Use analyze_file for the full IR of a single file. " + UNTRUSTED_NOTE + excludeNote,
         inputSchema: {
             path: z.string().min(1).optional().describe("Folder path, absolute or relative to the first allowed folder (default: the first allowed folder)"),
             max_files: z.number().int().min(1).max(DEFAULT_LIMITS.hardMaxFiles).optional()
@@ -152,7 +159,8 @@ function createServer(options = {}) {
             maxFileBytes: limits.maxFileBytes,
             timeBudgetMs: limits.timeBudgetMs,
             recursive: recursive ?? true,
-            detail: detail ?? "summary"
+            detail: detail ?? "summary",
+            excluder
         })));
 
     return server;

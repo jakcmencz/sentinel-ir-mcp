@@ -8,6 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio.js");
 const { createServer, DEFAULT_LIMITS } = require("../src/server");
+const { normalizePattern, ExcludeError, MAX_PATTERNS } = require("../src/exclude");
 const { version } = require("../package.json");
 
 const USAGE = `sentinel-ir-mcp ${version} — MCP server for sentinel-ir (JavaScript and TypeScript)
@@ -23,6 +24,10 @@ Usage: sentinel-ir-mcp [options] [folder ...]
                          command must be written as ./setup, ./doctor or ./guide. Without folders the
                          server uses the MCP roots offered by the client; if the
                          client offers none, only analyze_code works.
+  --exclude <name>       A file or folder the file tools must refuse; repeat for more.
+                         secrets = any file or folder named so, config/prod.js =
+                         this path in an allowed folder, *.min.js = by mask,
+                         ** = any folders. Set by you; the project cannot change it.
   --max-file-bytes <n>   Largest file to analyze (default ${DEFAULT_LIMITS.maxFileBytes}, max ${DEFAULT_LIMITS.hardMaxFileBytes})
   --time-budget-ms <n>   analyze_directory starts no new file after this time (default ${DEFAULT_LIMITS.timeBudgetMs}, max ${DEFAULT_LIMITS.hardMaxTimeBudgetMs})
   --max-files <n>        Default file limit for analyze_directory (default ${DEFAULT_LIMITS.maxFiles}, max ${DEFAULT_LIMITS.hardMaxFiles})
@@ -44,7 +49,7 @@ const NUMBER_OPTIONS = {
 };
 
 function parseArgs(argv) {
-    const opts = { roots: [] };
+    const opts = { roots: [], exclude: [] };
     for (let i = 0; i < argv.length; i++) {
         let arg = argv[i];
         let value;
@@ -57,6 +62,14 @@ function parseArgs(argv) {
             const n = Number(value);
             if (!Number.isInteger(n) || n < 1 || n > max) die(`${arg} must be an integer between 1 and ${max}`);
             opts[key] = n;
+        } else if (arg === "--exclude") {
+            if (value === undefined) value = argv[++i];
+            if (value === undefined) die("--exclude needs a value");
+            try { opts.exclude.push(normalizePattern(value)); } catch (e) {
+                if (!(e instanceof ExcludeError)) throw e;
+                die(e.message);
+            }
+            if (opts.exclude.length > MAX_PATTERNS) die(`at most ${MAX_PATTERNS} --exclude options`);
         } else if (arg.startsWith("-")) {
             die(`unknown option ${arg}`);
         } else {

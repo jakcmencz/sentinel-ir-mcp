@@ -56,14 +56,29 @@ const CLIENTS = Object.freeze({
 const CLIENT_NAMES = Object.freeze(Object.keys(CLIENTS));
 const FILE_CLIENTS = Object.freeze(CLIENT_NAMES.filter((name) => CLIENTS[name].kind === "file"));
 
-function npxEntry(folder) {
-    return { command: "npx", args: ["-y", PACKAGE_SPEC, folder] };
+function excludeArgs(exclude = []) {
+    return exclude.map((p) => `--exclude=${p}`);
+}
+
+// Exclusions in an entry's arguments, in both spellings the server accepts.
+function entryExcludes(args) {
+    const out = [];
+    for (let i = 0; i < args.length; i++) {
+        const a = String(args[i]);
+        if (a === "--exclude" && i + 1 < args.length) out.push(String(args[++i]));
+        else if (a.startsWith("--exclude=")) out.push(a.slice("--exclude=".length));
+    }
+    return out;
+}
+
+function npxEntry(folder, exclude = []) {
+    return { command: "npx", args: ["-y", PACKAGE_SPEC, ...excludeArgs(exclude), folder] };
 }
 
 // On Windows npx is npx.cmd, which a client cannot start without a shell
 // (measured: spawn("npx") fails with ENOENT), so the entry goes through cmd /c.
-function serverEntry(folder, platform = process.platform) {
-    const { command, args } = npxEntry(folder);
+function serverEntry(folder, platform = process.platform, exclude = []) {
+    const { command, args } = npxEntry(folder, exclude);
     return platform === "win32" ? { command: "cmd", args: ["/c", command, ...args] } : { command, args };
 }
 
@@ -85,8 +100,8 @@ function windowsArgQuote(value) {
     return `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, "$1$1")}"`;
 }
 
-function vscodeConfig(project) {
-    return { name: SERVER_NAME, type: "stdio", ...npxEntry(project) };
+function vscodeConfig(project, exclude = []) {
+    return { name: SERVER_NAME, type: "stdio", ...npxEntry(project, exclude) };
 }
 
 // code.cmd/claude.cmd re-read their arguments through cmd.exe, which acts on
@@ -98,23 +113,26 @@ function cmdSafeJson(value) {
 
 // Windows forms were checked in CI against a .cmd shim (like code.cmd and
 // claude.cmd) from PowerShell 5.1, PowerShell 7 and cmd.exe.
-function installCommand(client, project, platform = process.platform, shell = "powershell") {
-    const json = JSON.stringify(vscodeConfig(project));
+// Exclusions never contain " & | < > ^ % ! (normalizePattern refuses them).
+function installCommand(client, project, platform = process.platform, shell = "powershell", exclude = []) {
+    const json = JSON.stringify(vscodeConfig(project, exclude));
     const win = platform === "win32";
     if (client === "vscode") {
         if (!win) return `code --add-mcp ${shellQuote(json)}`;
-        return `code ${shell === "cmd" ? "" : "--% "}--add-mcp ${windowsArgQuote(cmdSafeJson(vscodeConfig(project)))}`;
+        return `code ${shell === "cmd" ? "" : "--% "}--add-mcp ${windowsArgQuote(cmdSafeJson(vscodeConfig(project, exclude)))}`;
     }
     if (client === "claude-code") {
+        const ex = excludeArgs(exclude);
         if (win && shell !== "cmd") {
             // PowerShell prefers npm's claude.ps1 shim: a script gets `--` only when quoted, and --% does not apply to it.
-            return `claude mcp add --transport stdio ${SERVER_NAME} '--' cmd /c npx -y ${PACKAGE_SPEC} ${powershellQuote(project)}`;
+            return `claude mcp add --transport stdio ${SERVER_NAME} '--' cmd /c npx -y ${PACKAGE_SPEC} ${ex.map((a) => powershellQuote(a) + " ").join("")}${powershellQuote(project)}`;
         }
         if (win && project.includes("%")) {
-            const config = { type: "stdio", ...serverEntry(project, "win32") };
+            const config = { type: "stdio", ...serverEntry(project, "win32", exclude) };
             return `claude mcp add-json ${SERVER_NAME} ${windowsArgQuote(cmdSafeJson(config))}`;
         }
-        return `claude mcp add --transport stdio ${SERVER_NAME} -- ${win ? "cmd /c npx" : "npx"} -y ${PACKAGE_SPEC} ${win ? `"${project}"` : shellQuote(project)}`;
+        const quote = win ? (a) => `"${a}"` : shellQuote;
+        return `claude mcp add --transport stdio ${SERVER_NAME} -- ${win ? "cmd /c npx" : "npx"} -y ${PACKAGE_SPEC} ${ex.map((a) => quote(a) + " ").join("")}${quote(project)}`;
     }
     throw new Error(`No install command for ${client}`);
 }
@@ -131,5 +149,5 @@ function installLinks() {
 
 module.exports = {
     SERVER_NAME, PACKAGE_SPEC, WORKSPACE_VAR, CLIENTS, CLIENT_NAMES, FILE_CLIENTS,
-    homeOf, npxEntry, serverEntry, isWindowsNpxWrapper, shellQuote, powershellQuote, installCommand, installLinks
+    homeOf, npxEntry, serverEntry, excludeArgs, entryExcludes, isWindowsNpxWrapper, shellQuote, powershellQuote, installCommand, installLinks
 };

@@ -3,7 +3,10 @@
 const fs = require("fs");
 const path = require("path");
 const { isDeepStrictEqual } = require("util");
-const { SERVER_NAME, PACKAGE_SPEC, CLIENTS, homeOf, serverEntry, installCommand, shellQuote, powershellQuote } = require("./clients");
+const { SERVER_NAME, PACKAGE_SPEC, CLIENTS, homeOf, serverEntry, installCommand, shellQuote, powershellQuote, entryExcludes } = require("./clients");
+const { createExcluder, ExcludeError } = require("./exclude");
+const { describeExcluded } = require("./excludeReport");
+const { SKIP_DIRS } = require("./analyze");
 
 class SetupError extends Error {}
 
@@ -109,6 +112,32 @@ function applyPlan(plan, now = Date.now()) {
     return { written: true, backup };
 }
 
+function toPatterns(list) {
+    try {
+        return createExcluder(list).patterns;
+    } catch (e) {
+        if (e instanceof ExcludeError) throw new SetupError(`${e.message}. Nothing was changed.`);
+        throw e;
+    }
+}
+
+// --no-exclude clears, --exclude replaces, otherwise the current list is kept;
+// an interactive run asks, with Enter keeping the current list.
+async function chooseExcludes(opts, io, previous) {
+    if (opts.noExclude && opts.exclude) throw new SetupError("Use either --exclude or --no-exclude, not both.");
+    if (opts.noExclude) return [];
+    if (opts.exclude) return toPatterns(opts.exclude);
+    const current = previous && Array.isArray(previous.args) ? toPatterns(entryExcludes(previous.args)) : [];
+    if (opts.yes || opts.dryRun || !io.isTTY || !io.prompt) return current;
+    const question = current.length
+        ? `Files or folders the agent must not read, comma-separated (now: ${current.join(", ")}; Enter = keep, - = none): `
+        : "Files or folders the agent must not read, comma-separated (e.g. secrets, dist, *.min.js; Enter = none): ";
+    const answer = (await io.prompt(question)).trim();
+    if (answer === "") return current;
+    if (answer === "-") return [];
+    return toPatterns(answer.split(",").map((s) => s.trim()).filter(Boolean));
+}
+
 function describePlan(client, plan, project) {
     const lines = [
         `Client:  ${CLIENTS[client].label}`,
@@ -156,14 +185,16 @@ async function runSetup(opts, io) {
         const project = validateProject(opts.project || io.cwd, io.env);
 
         if (spec.kind === "command") {
+            const exclude = await chooseExcludes(opts, io, undefined);
             if (opts.config) throw new SetupError(`--config does not apply to ${spec.label}; it installs servers with its own command.`);
             if (io.platform === "win32") {
-                out(`${spec.label} adds MCP servers with its own command. Nothing was written. Run in PowerShell:\n\n  ${installCommand(client, project, "win32", "powershell")}\n\n` +
-                    `or in Command Prompt (cmd.exe):\n\n  ${installCommand(client, project, "win32", "cmd")}\n\n`);
+                out(`${spec.label} adds MCP servers with its own command. Nothing was written. Run in PowerShell:\n\n  ${installCommand(client, project, "win32", "powershell", exclude)}\n\n` +
+                    `or in Command Prompt (cmd.exe):\n\n  ${installCommand(client, project, "win32", "cmd", exclude)}\n\n`);
             } else {
-                out(`${spec.label} adds MCP servers with its own command. Nothing was written. Run:\n\n  ${installCommand(client, project, io.platform)}\n\n`);
+                out(`${spec.label} adds MCP servers with its own command. Nothing was written. Run:\n\n  ${installCommand(client, project, io.platform, undefined, exclude)}\n\n`);
             }
             out(`Access: ${project} (only this folder, read-only)\n`);
+            out(describeExcluded(exclude, [project], SKIP_DIRS).join("\n") + "\n");
             out(`Then check the connection${io.platform === "win32" ? " (PowerShell)" : ""}: npx -y ${PACKAGE_SPEC} doctor --client ${client} --project ${hintArg(project, io.platform)}\n`);
             out(percentNote(project));
             return 0;
@@ -176,8 +207,11 @@ async function runSetup(opts, io) {
         }
         const folder = opts.config || !spec.folderArg ? project : spec.folderArg(ctx);
         const seed = !opts.config && spec.legacyConfigPath ? spec.legacyConfigPath(ctx) : null;
-        const plan = planFileChange(file, serverEntry(folder, io.platform), seed);
+        const { previous } = planFileChange(file, serverEntry(folder, io.platform), seed);
+        const exclude = await chooseExcludes(opts, io, previous);
+        const plan = planFileChange(file, serverEntry(folder, io.platform, exclude), seed);
         out(describePlan(client, plan, project));
+        out(describeExcluded(exclude, [project], SKIP_DIRS).join("\n") + "\n");
         out(percentNote(project));
 
         if (plan.action === "unchanged") {

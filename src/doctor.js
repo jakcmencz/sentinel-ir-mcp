@@ -5,12 +5,15 @@ const path = require("path");
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
 const { version } = require("../package.json");
-const { SERVER_NAME, PACKAGE_SPEC, WORKSPACE_VAR, CLIENTS, FILE_CLIENTS, isWindowsNpxWrapper } = require("./clients");
+const { SERVER_NAME, PACKAGE_SPEC, WORKSPACE_VAR, CLIENTS, FILE_CLIENTS, isWindowsNpxWrapper, entryExcludes, excludeArgs } = require("./clients");
 const { readConfig } = require("./setup");
+const { createExcluder, ExcludeError } = require("./exclude");
+const { SKIP_DIRS } = require("./analyze");
+const { describeExcluded } = require("./excludeReport");
 
 const BIN = path.join(__dirname, "..", "bin", "sentinel-ir-mcp.js");
 const EXPECTED_TOOLS = ["analyze_code", "analyze_directory", "analyze_file"];
-const VALUE_OPTIONS = new Set(["--max-file-bytes", "--max-files", "--time-budget-ms"]);
+const VALUE_OPTIONS = new Set(["--max-file-bytes", "--max-files", "--time-budget-ms", "--exclude"]);
 
 function irVersion() {
     try {
@@ -31,6 +34,19 @@ function entryFolders(args) {
         else if (!a.startsWith("-")) folders.push(a);
     }
     return folders;
+}
+
+// The entry's exclusions as the server will apply them; null if one is invalid.
+function checkExcludes(client, label, args, file, add) {
+    const raw = entryExcludes(args);
+    try {
+        return createExcluder(raw).patterns;
+    } catch (e) {
+        if (!(e instanceof ExcludeError)) throw e;
+        add("fail", `${client}.exclude`, `${label}: ${e.message}; the server will not start`,
+            `Run setup again with --exclude, or fix it in ${file}.`);
+        return null;
+    }
 }
 
 function checkConfig(client, file, explicit, project, add, platform) {
@@ -84,7 +100,9 @@ function checkConfig(client, file, explicit, project, add, platform) {
             `Run setup again from the project folder, or fix the path in ${file}.`);
     }
     if (folders.length === 0) add("warn", `${client}.folder`, `${label}: no folder given; the file tools rely on the client's MCP roots`);
-    return resolved;
+    const exclude = checkExcludes(client, label, args, file, add);
+    if (exclude === null) return null;
+    return { folders: resolved, exclude };
 }
 
 function withTimeout(promise, ms, what) {
@@ -95,8 +113,8 @@ function withTimeout(promise, ms, what) {
     ]).finally(() => clearTimeout(timer));
 }
 
-async function checkHandshake(folders, add, timeoutMs) {
-    const transport = new StdioClientTransport({ command: process.execPath, args: [BIN, ...folders], stderr: "pipe" });
+async function checkHandshake(folders, exclude, add, timeoutMs) {
+    const transport = new StdioClientTransport({ command: process.execPath, args: [BIN, ...excludeArgs(exclude), ...folders], stderr: "pipe" });
     const client = new Client({ name: "sentinel-ir-mcp-doctor", version });
     try {
         await withTimeout(client.connect(transport), timeoutMs, "MCP handshake");
@@ -136,6 +154,7 @@ async function runDoctor(opts, io) {
     }
     const names = opts.client ? (CLIENTS[opts.client] && CLIENTS[opts.client].kind === "file" ? [opts.client] : []) : FILE_CLIENTS;
     let folders = null;
+    let exclude = [];
     for (const client of names) {
         const ctx = { project, global: Boolean(opts.global), env: io.env, platform: io.platform };
         let file = opts.config ? path.resolve(io.cwd, opts.config) : CLIENTS[client].configPath(ctx);
@@ -146,7 +165,7 @@ async function runDoctor(opts, io) {
             file = legacy;
         }
         const found = checkConfig(client, file, Boolean(opts.client), project, add, io.platform);
-        if (found && folders === null) folders = found;
+        if (found && folders === null) ({ folders, exclude } = found);
     }
     if (folders === null) {
         let isDir = false;
@@ -157,7 +176,8 @@ async function runDoctor(opts, io) {
             folders = [];
         }
     }
-    await checkHandshake(folders, add, opts.timeoutMs || 30000);
+    for (const line of describeExcluded(exclude, folders, SKIP_DIRS)) add("ok", "exclude", line);
+    await checkHandshake(folders, exclude, add, opts.timeoutMs || 30000);
 
     const failed = checks.some((c) => c.status === "fail");
     if (opts.json) {
