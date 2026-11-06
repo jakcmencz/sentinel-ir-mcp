@@ -151,7 +151,10 @@ function shortSignal(signal) {
     if (signal.length <= SIGNAL_CHARS) return signal;
     const at = signal.lastIndexOf("@");
     const line = at > 0 ? signal.slice(at) : "";
-    return signal.slice(0, SIGNAL_CHARS - line.length - 1) + "\u2026" + line;
+    let end = SIGNAL_CHARS - line.length - 1;
+    const unit = signal.charCodeAt(end - 1);
+    if (unit >= 0xd800 && unit <= 0xdbff) end--;
+    return signal.slice(0, end) + "\u2026" + line;
 }
 
 // The short entry analyze_directory returns by default: enough to rank files

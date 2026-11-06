@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
 const { makeFixture, connectStdio, call } = require("./helpers");
+const { summaryEntry } = require("../src/analyze");
 
 let fx;
 let client;
@@ -84,4 +85,18 @@ test("detail full keeps the 0.4.1 entries; both agree on order, risk and counts"
 test("an unknown detail value is refused", async () => {
     const r = await call(client, "analyze_directory", { detail: "everything" });
     assert.equal(r.isError, true);
+});
+
+test("cutting code never splits a surrogate pair", () => {
+    for (let pad = 0; pad < 4; pad++) {
+        const signal = `process_spawn:${"x".repeat(90 + pad)}${"\u{1F600}".repeat(30)}.exec@7`;
+        const ir = {
+            analysisStatus: "complete", language: "javascript", world: { risk: "critical" },
+            summary: { lines: 7 }, facts: { operations: ["processSpawn"], riskSignals: [signal] }
+        };
+        const [cut] = summaryEntry("a.js", ir).riskSignals;
+        assert.ok(cut.length <= 120);
+        assert.ok(cut.endsWith("\u2026@7"));
+        assert.ok(cut.isWellFormed ? cut.isWellFormed() : !/[\ud800-\udbff](?![\udc00-\udfff])/.test(cut), `pad ${pad}`);
+    }
 });
