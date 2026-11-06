@@ -25,6 +25,32 @@ of safety. Other languages are not supported yet. What is detected in Python
 (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.4.1** uses `sentinel-ir` 0.4.3:
+
+- **Faster on large JavaScript:** a valid 1 MiB file takes about 5 s instead
+  of about 170 s, so `analyze_directory` no longer runs past the 60 s request
+  timeout of MCP SDK clients on one big file.
+- **Read-time check:** files are opened first and then checked, so a file
+  swapped for a symlink between listing and reading is refused instead of read
+  from outside the allowed folders. A file removed during a scan no longer
+  fails the whole scan; it is listed in `skipped.unreadable`. Files with more
+  than one hard link are refused (`skipped.hardlinks`).
+- **Finite limits:** `--max-file-bytes` is capped at 2 MiB. Valid JavaScript
+  with `sentinel-ir` 0.4.3:
+
+  | size | Linux | Windows CI (Node 20/22/24) |
+  |---|---|---|
+  | 1 MiB | 4–5 s, 0.9 GB | 13–23 s, 0.8 GB |
+  | 2 MiB | 10–14 s, 1.6 GB | 29–40 s, 1.5 GB |
+  | 4 MiB | 25–29 s, 3 GB | process aborts |
+
+  A file above 2 MiB can take longer than the 60 s request timeout on its own.
+- **Time budget:** `analyze_directory` starts no new file after 30 s
+  (`--time-budget-ms`). Then `timedOut` is `true` and the remaining files are
+  listed in `notAnalyzed`. A file already being analyzed is not interrupted.
+- **Parser errors:** incomplete files carry `facts.parseError` with the line,
+  column and kind of the first parser error (from `sentinel-ir` 0.4.3).
+
 **0.4.0** uses `sentinel-ir` 0.4.2:
 
 - **Native code:** `ctypes` / `cffi`, `process.dlopen`, `*.node` addons and
@@ -231,9 +257,10 @@ if the client offers them; if it offers none, only `analyze_code` works.
 ### Options
 
 ```text
-sentinel-ir-mcp [--max-file-bytes <n>] [--max-files <n>] [folder ...]
+sentinel-ir-mcp [--max-file-bytes <n>] [--max-files <n>] [--time-budget-ms <n>] [folder ...]
 
-  --max-file-bytes <n>   largest file to analyze (default 1048576 = 1 MiB)
+  --max-file-bytes <n>   largest file to analyze (default 1048576 = 1 MiB, max 2097152 = 2 MiB)
+  --time-budget-ms <n>   analyze_directory starts no new file after this (default 30000, max 600000)
   --max-files <n>        default file limit for analyze_directory (default 50, max 500)
 ```
 
@@ -248,7 +275,15 @@ sentinel-ir-mcp [--max-file-bytes <n>] [--max-files <n>] [folder ...]
   or, without folder arguments, inside one of the client's MCP roots. `../`,
   absolute paths elsewhere and symlinks pointing outside are refused.
 - **`analyze_directory`** skips `node_modules`, `.git`, hidden folders and
-  every symlink, and stops after `max_files` files (`truncated: true`).
+  every symlink, and stops after `max_files` files (`truncated: true`) or
+  when the time budget is spent (`timedOut: true`, rest in `notAnalyzed`).
+  Each file is checked again when it is opened: it must still be a regular
+  file inside the allowed folders.
+- **Hard links are refused.** A hard link inside the folder can point to a
+  file outside it, and the other names of a file cannot be found. So files
+  with more than one hard link are refused (`analyze_file` error,
+  `skipped.hardlinks` in `analyze_directory`). This also refuses harmless hard
+  links, e.g. pnpm's in `node_modules`.
 - **The IR is still untrusted text.** Comments, string bodies and function
   bodies are not copied into it, so instructions hidden there do not reach the
   agent through the IR. It does contain identifiers and some literals from the

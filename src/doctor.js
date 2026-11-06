@@ -10,7 +10,7 @@ const { readConfig } = require("./setup");
 
 const BIN = path.join(__dirname, "..", "bin", "sentinel-ir-mcp.js");
 const EXPECTED_TOOLS = ["analyze_code", "analyze_directory", "analyze_file"];
-const VALUE_OPTIONS = new Set(["--max-file-bytes", "--max-files"]);
+const VALUE_OPTIONS = new Set(["--max-file-bytes", "--max-files", "--time-budget-ms"]);
 
 function irVersion() {
     try {

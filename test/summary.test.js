@@ -96,12 +96,12 @@ test("the summary is identical across repeated runs", async () => {
 });
 
 test("a file that cannot be read is listed in skipped.unreadable, not counted", async (t) => {
-    const realReadFile = fsp.readFile;
-    const readMock = t.mock.method(fsp, "readFile", (file, ...rest) => {
+    const realOpen = fsp.open;
+    const readMock = t.mock.method(fsp, "open", (file, ...rest) => {
         if (String(file).endsWith(`${path.sep}run.js`)) {
             return Promise.reject(Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" }));
         }
-        return realReadFile.call(fsp, file, ...rest);
+        return realOpen.call(fsp, file, ...rest);
     });
     const out = await analyzeDirectory(".", [dir], LIMITS);
     readMock.mock.restore();

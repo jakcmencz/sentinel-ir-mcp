@@ -8,6 +8,12 @@ const { analyzeCode, analyzeFile, analyzeDirectory } = require("./analyze");
 
 const DEFAULT_LIMITS = Object.freeze({
     maxFileBytes: 1024 * 1024,
+    // 4 MiB of JavaScript aborts the process on Windows CI (3 GB on Linux).
+    hardMaxFileBytes: 2 * 1024 * 1024,
+    // Plus one 1 MiB file (up to 23 s on Windows CI) stays below the 60 s
+    // request timeout of MCP SDK clients.
+    timeBudgetMs: 30000,
+    hardMaxTimeBudgetMs: 600000,
     maxFiles: 50,
     hardMaxFiles: 500
 });
@@ -30,7 +36,7 @@ const INSTRUCTIONS =
     "or risk, then read the raw source of the files that matter. Supported: JavaScript (.js, .mjs, .cjs), TypeScript (.ts, .mts, .cts, .tsx) and Python (.py, .pyi); the language is picked from the file extension. " +
     "Rely on analysisStatus, world.risk, forbidden and facts; analysisStatus \"incomplete\" means the file did not parse cleanly. " +
     "analyze_directory lists such files separately in 'incomplete'; their low risk is not evidence of safety. " +
-    "Suggested order: analyze_directory first, check 'incomplete' and 'skipped.unreadable', pick the relevant files, " +
+    "Suggested order: analyze_directory first, check 'incomplete', 'skipped.unreadable' and 'notAnalyzed' (set when the time budget ran out), pick the relevant files, " +
     "then analyze_file, and read raw source only where needed. " +
     "Read-only: nothing is written, executed or sent over the network. " + UNTRUSTED_NOTE;
 
@@ -56,8 +62,9 @@ async function guarded(fn) {
 
 function createServer(options = {}) {
     const limits = {
-        maxFileBytes: options.maxFileBytes ?? DEFAULT_LIMITS.maxFileBytes,
-        maxFiles: options.maxFiles ?? DEFAULT_LIMITS.maxFiles
+        maxFileBytes: Math.min(options.maxFileBytes ?? DEFAULT_LIMITS.maxFileBytes, DEFAULT_LIMITS.hardMaxFileBytes),
+        maxFiles: options.maxFiles ?? DEFAULT_LIMITS.maxFiles,
+        timeBudgetMs: Math.min(options.timeBudgetMs ?? DEFAULT_LIMITS.timeBudgetMs, DEFAULT_LIMITS.hardMaxTimeBudgetMs)
     };
     const fixedRoots = canonicalRoots(options.roots || []);
 
@@ -112,6 +119,9 @@ function createServer(options = {}) {
             "you when there were more. 'incomplete' lists files whose analysis did not finish (e.g. parse errors); " +
             "their risk is not reliable, check them separately. statusCounts counts complete vs incomplete. " +
             "Files that could not be read are listed in skipped.unreadable and are not counted as analyzed. " +
+            "Files with more than one hard link are refused and listed in skipped.hardlinks. " +
+            `No new file is started after ${limits.timeBudgetMs / 1000} s: then timedOut is true and the remaining files are in notAnalyzed; ` +
+            "call again on a subfolder or use analyze_file for them. " +
             "Use analyze_file for the full IR of a single file. " + UNTRUSTED_NOTE,
         inputSchema: {
             path: z.string().min(1).optional().describe("Folder path, absolute or relative to the first allowed folder (default: the first allowed folder)"),
@@ -124,6 +134,7 @@ function createServer(options = {}) {
         analyzeDirectory(path ?? ".", await allowedRoots(), {
             maxFiles: max_files ?? limits.maxFiles,
             maxFileBytes: limits.maxFileBytes,
+            timeBudgetMs: limits.timeBudgetMs,
             recursive: recursive ?? true
         })));
 
