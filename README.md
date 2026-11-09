@@ -25,6 +25,25 @@ of safety. Other languages are not supported yet. What is detected in Python
 (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.4.4** can keep a log of what the agent asked for (off unless you turn it on):
+
+- **One question in `setup`:** *"Keep a log of what the agent asks for (file
+  names and results, never your code)? [y/N]"*. Or `setup --audit-log`;
+  `--no-audit-log` turns it off. Running `setup` again keeps the setting.
+- **One command to read it:** `npx -y sentinel-ir-mcp@0.4 log` prints the last
+  50 entries as plain lines, `--all` everything, `--json` for scripts:
+
+  ```text
+  2026-10-18 10:32:05 [cursor] file src/app.js: critical
+  2026-10-18 10:32:09 [cursor] REFUSED file secrets/aws.js: excluded by your settings
+  2026-10-18 10:33:40 [cursor] folder .: 42 file(s) (1 critical, 6 medium, 35 low), 3 excluded
+      critical src/app.js
+  ```
+- `doctor` says whether the log is on, where it is and how big, and proves the
+  log can be written. Details: [Audit log](#audit-log).
+
+Also uses `sentinel-ir` 0.4.5 (Python parse errors point where Python does).
+
 **0.4.3** lets you exclude files and folders:
 
 - **One question in `setup`:** *"Files or folders the agent must not read"*,
@@ -187,7 +206,7 @@ code 0 when everything passes, 1 otherwise; `--json` gives a machine-readable
 report.
 
 Only `setup` writes files, and only the client config. The MCP server itself
-stays read-only.
+reads only; the one exception is the [audit log](#audit-log), if you turn it on.
 
 **Cursor:** a server from a project `.cursor/mcp.json` starts switched off.
 Open Cursor Settings → Customize → MCPs and turn on the switch next to
@@ -317,12 +336,59 @@ npx -y sentinel-ir-mcp@0.4 setup --client cursor --exclude secrets --exclude "*.
 The exclusions only bind this server. An agent that can read files with
 other tools of its client is told about them, but this server cannot stop it.
 
+### Audit log
+
+```bash
+npx -y sentinel-ir-mcp@0.4 setup --client cursor --audit-log   # or answer "y" in setup
+npx -y sentinel-ir-mcp@0.4 log                                 # what the agent asked for
+```
+
+| system | folder |
+|---|---|
+| Windows | `%LOCALAPPDATA%\sentinel-ir-mcp\audit-log\` |
+| macOS | `~/Library/Logs/sentinel-ir-mcp/` |
+| Linux | `~/.local/state/sentinel-ir-mcp/audit-log/` (or `$XDG_STATE_HOME`) |
+
+`--audit-log=<folder>` uses another folder: a full path outside the project
+(the characters `" & | < > ^ % !` are refused because Windows starts the
+server through `cmd`). Then read it with `log --dir <folder>`.
+
+- **What is written:** one JSON line per tool call in `audit-YYYY-MM-DD.jsonl`
+  (local date): time, client name, tool, the path the agent asked for, the
+  result (risk, `analysisStatus`, file counts, up to 20 `critical`/`high` file
+  paths of a folder) or why it was refused (`excluded`, `outside`,
+  `not-found`, `too-large`), and the duration. A line when the server starts.
+- **What is not written:** source code. For `analyze_code` only the size in
+  bytes, the language and the risk. Names of excluded files are not written
+  either, only their count. Long values are cut to 300 characters.
+- **Cleanup:** day files older than 30 days are deleted; a day stops 1 MB
+  below 50 MB with one line saying so, so parallel servers stay under 50 MB
+  too. Other files in the folder are never touched.
+- **Set by you only,** like exclusions: the agent and the project cannot turn
+  it on, off or move it. The log is never written inside the project.
+- **Safe to read:** a path with a newline cannot add a fake line (JSON
+  escapes it), and `log` shows control and bidi characters as `\u{1b}`, so a
+  path cannot recolor or rewrite your terminal.
+- **Never breaks the tools:** when the log cannot be written (disk full, no
+  permission) the tools answer as usual and the server says so once on stderr;
+  `doctor` reports it as `[FAIL]`. Several servers can share the folder: each
+  line is one append, so lines do not mix.
+- `doctor` adds one line, `doctor checked that the log can be written`, and
+  none of its own tool calls.
+- A day file that is a symlink, junction or hard link is not written to, on
+  Windows too, so the log cannot be used to overwrite another file.
+- It records only what the agent asked **this server** for. Other file tools
+  of your AI app are not in it.
+- Files are created readable by you only (`0600`, folder `0700`; on Windows
+  the folder in `%LOCALAPPDATA%` is private to your account).
+
 ### Options
 
 ```text
-sentinel-ir-mcp [--exclude <name>]... [--max-file-bytes <n>] [--max-files <n>] [--time-budget-ms <n>] [folder ...]
+sentinel-ir-mcp [--exclude <name>]... [--audit-log[=<folder>]] [--max-file-bytes <n>] [--max-files <n>] [--time-budget-ms <n>] [folder ...]
 
   --exclude <name>       file or folder the file tools refuse (repeatable, max 100); see Excluding files
+  --audit-log[=<folder>] keep a log of the tool calls (never source code); see Audit log
 
   --max-file-bytes <n>   largest file to analyze (default 1048576 = 1 MiB, max 2097152 = 2 MiB)
   --time-budget-ms <n>   analyze_directory starts no new file after this (default 30000, max 600000)
@@ -331,9 +397,10 @@ sentinel-ir-mcp [--exclude <name>]... [--max-file-bytes <n>] [--max-files <n>] [
 
 ## What the server can and cannot do
 
-- **Reads only.** The MCP server never writes files, runs commands or opens
-  network connections (only the separate `setup` command writes, and only the
-  client config file you confirm; `doctor` starts this package's own server). The only files it opens are `.js`/`.mjs`/`.cjs`/`.ts`/`.mts`/`.cts`/`.tsx`/`.py`/`.pyi` files up to
+- **Reads only.** The MCP server never writes project files, runs commands or
+  opens network connections. It writes only the [audit log](#audit-log) when
+  you turn it on (outside the project). The separate `setup` command writes
+  only the client config file you confirm; `doctor` starts this package's own server. The only files it opens are `.js`/`.mjs`/`.cjs`/`.ts`/`.mts`/`.cts`/`.tsx`/`.py`/`.pyi` files up to
   `--max-file-bytes`.
 - **Only inside the allowed folders.** Every path is resolved to its real path
   (symlinks followed) and must lie inside a folder given on the command line,

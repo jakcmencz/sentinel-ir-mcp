@@ -6,6 +6,7 @@ const { version } = require("../package.json");
 const { AccessError, canonicalRoots, rootsFromUris } = require("./paths");
 const { analyzeCode, analyzeFile, analyzeDirectory } = require("./analyze");
 const { createExcluder } = require("./exclude");
+const { createAuditLog, describeCall } = require("./auditLog");
 
 const DEFAULT_LIMITS = Object.freeze({
     maxFileBytes: 1024 * 1024,
@@ -61,12 +62,27 @@ function fail(message) {
     return { content: [{ type: "text", text: message }], isError: true };
 }
 
-async function guarded(fn) {
+function refusalReason(err) {
+    if (!(err instanceof AccessError)) return "error";
+    const m = err.message;
+    if (m.startsWith("Excluded by the user")) return "excluded";
+    if (m.startsWith("File too large")) return "too-large";
+    if (m.includes("outside the allowed folders")) return "outside";
+    if (m.startsWith("No allowed folders")) return "no-folders";
+    if (m.startsWith("Not found")) return "not-found";
+    return "refused";
+}
+
+async function guarded(fn, audit) {
+    const started = Date.now();
     try {
-        return ok(await fn());
+        const result = await fn();
+        audit({ result }, Date.now() - started);
+        return ok(result);
     } catch (err) {
-        if (err instanceof AccessError) return fail(err.message);
-        return fail(`Analysis failed: ${err && err.message ? err.message : String(err)}`);
+        const message = err instanceof AccessError ? err.message : `Analysis failed: ${err && err.message ? err.message : String(err)}`;
+        audit({ error: message, reason: refusalReason(err) }, Date.now() - started);
+        return fail(message);
     }
 }
 
@@ -83,8 +99,21 @@ function createServer(options = {}) {
         timeBudgetMs: Math.min(options.timeBudgetMs ?? DEFAULT_LIMITS.timeBudgetMs, DEFAULT_LIMITS.hardMaxTimeBudgetMs)
     };
     const fixedRoots = canonicalRoots(options.roots || []);
+    const auditLog = options.auditLog || createAuditLog({ dir: options.auditDir });
 
     const server = new McpServer({ name: "sentinel-ir-mcp", version }, { instructions: INSTRUCTIONS + excludeNote });
+    if (auditLog.active) auditLog.record({ event: "start", version, folders: fixedRoots, exclusions: excluder.patterns.length });
+
+    function auditor(tool, args) {
+        if (!auditLog.active) return () => {};
+        return (outcome, ms) => {
+            try {
+                const info = server.server.getClientVersion();
+                const client = info && typeof info.name === "string" ? info.name.slice(0, 100) : undefined;
+                auditLog.record({ client, ...describeCall(tool, args, outcome), ms });
+            } catch { /* logging must never break a tool call */ }
+        };
+    }
 
     // Folders given on the command line win. Otherwise ask the client for its
     // MCP roots on every call (they can change while the session runs).
@@ -112,7 +141,7 @@ function createServer(options = {}) {
             language: z.enum(["javascript", "typescript", "tsx", "python"]).optional().describe("Overrides the language picked from target (default javascript)")
         },
         annotations: { title: "Analyze JavaScript, TypeScript or Python source", ...READ_ONLY }
-    }, ({ code, target, language }) => guarded(() => analyzeCode(code, target, language)));
+    }, ({ code, target, language }) => guarded(() => analyzeCode(code, target, language), auditor("analyze_code", { code, target, language })));
 
     server.registerTool("analyze_file", {
         title: "Analyze a JavaScript, TypeScript or Python file",
@@ -124,7 +153,7 @@ function createServer(options = {}) {
             path: z.string().min(1).describe("File path, absolute or relative to the first allowed folder")
         },
         annotations: { title: "Analyze a JavaScript, TypeScript or Python file", ...READ_ONLY }
-    }, async ({ path }) => guarded(async () => analyzeFile(path, await allowedRoots(), { ...limits, excluder })));
+    }, async ({ path }) => guarded(async () => analyzeFile(path, await allowedRoots(), { ...limits, excluder }), auditor("analyze_file", { path })));
 
     server.registerTool("analyze_directory", {
         title: "Analyze a folder of JavaScript, TypeScript and Python files",
@@ -161,8 +190,9 @@ function createServer(options = {}) {
             recursive: recursive ?? true,
             detail: detail ?? "summary",
             excluder
-        })));
+        }), auditor("analyze_directory", { path, max_files, recursive, detail })));
 
+    server.auditLog = auditLog;
     return server;
 }
 

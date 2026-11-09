@@ -3,7 +3,8 @@
 const fs = require("fs");
 const path = require("path");
 const { isDeepStrictEqual } = require("util");
-const { SERVER_NAME, PACKAGE_SPEC, CLIENTS, homeOf, serverEntry, installCommand, shellQuote, powershellQuote, entryExcludes } = require("./clients");
+const { SERVER_NAME, PACKAGE_SPEC, CLIENTS, homeOf, serverEntry, installCommand, shellQuote, powershellQuote, entryExcludes, entryAuditLog } = require("./clients");
+const { AuditLogError, defaultAuditDir, normalizeAuditDir, assertOutsideProjects } = require("./auditLog");
 const { createExcluder, ExcludeError } = require("./exclude");
 const { describeExcluded } = require("./excludeReport");
 const { SKIP_DIRS } = require("./analyze");
@@ -138,6 +139,48 @@ async function chooseExcludes(opts, io, previous) {
     return toPatterns(answer.split(",").map((s) => s.trim()).filter(Boolean));
 }
 
+// --no-audit-log turns it off, --audit-log[=<folder>] on, otherwise the current
+// setting is kept; an interactive run asks, with Enter keeping it.
+async function chooseAuditLog(opts, io, previous, project) {
+    if (opts.noAuditLog && opts.auditLog) throw new SetupError("Use either --audit-log or --no-audit-log, not both.");
+    let audit;
+    if (opts.noAuditLog) audit = null;
+    else if (opts.auditLog === true) audit = { dir: null };
+    else if (typeof opts.auditLog === "string") audit = { dir: opts.auditLog };
+    else {
+        const current = previous && Array.isArray(previous.args) ? entryAuditLog(previous.args) : null;
+        audit = current;
+        if (!(opts.yes || opts.dryRun || !io.isTTY || !io.prompt)) {
+            const question = current
+                ? "Keep a log of what the agent asks for (file names and results, never your code)? (now: on; Enter = keep, n = off) "
+                : "Keep a log of what the agent asks for (file names and results, never your code)? [y/N] ";
+            const answer = (await io.prompt(question)).trim().toLowerCase();
+            if (answer === "y" || answer === "yes") audit = current || { dir: null };
+            else if (answer === "n" || answer === "no") audit = null;
+            else if (answer !== "") throw new SetupError(`Answer y or n, not "${answer}". Nothing was changed.`);
+        }
+    }
+    if (!audit) return null;
+    try {
+        const dir = audit.dir ? normalizeAuditDir(audit.dir) : null;
+        assertOutsideProjects(dir || defaultAuditDir(io.env, io.platform), [project], io.platform === "win32" || io.platform === "darwin");
+        return { dir };
+    } catch (e) {
+        if (e instanceof AuditLogError) throw new SetupError(`${e.message}. Nothing was changed.`);
+        throw e;
+    }
+}
+
+function describeAudit(audit, io) {
+    if (!audit) return `Audit log: off (turn it on with: npx -y ${PACKAGE_SPEC} setup --audit-log)
+`;
+    const dir = audit.dir || defaultAuditDir(io.env, io.platform);
+    return `Audit log: on, in ${dir} (only what the agent asked for and the results, never your code)
+` +
+        `  see it: npx -y ${PACKAGE_SPEC} log${audit.dir ? ` --dir ${hintArg(audit.dir, io.platform)}` : ""}
+`;
+}
+
 function describePlan(client, plan, project) {
     const lines = [
         `Client:  ${CLIENTS[client].label}`,
@@ -186,15 +229,17 @@ async function runSetup(opts, io) {
 
         if (spec.kind === "command") {
             const exclude = await chooseExcludes(opts, io, undefined);
+            const audit = await chooseAuditLog(opts, io, undefined, project);
             if (opts.config) throw new SetupError(`--config does not apply to ${spec.label}; it installs servers with its own command.`);
             if (io.platform === "win32") {
-                out(`${spec.label} adds MCP servers with its own command. Nothing was written. Run in PowerShell:\n\n  ${installCommand(client, project, "win32", "powershell", exclude)}\n\n` +
-                    `or in Command Prompt (cmd.exe):\n\n  ${installCommand(client, project, "win32", "cmd", exclude)}\n\n`);
+                out(`${spec.label} adds MCP servers with its own command. Nothing was written. Run in PowerShell:\n\n  ${installCommand(client, project, "win32", "powershell", exclude, audit)}\n\n` +
+                    `or in Command Prompt (cmd.exe):\n\n  ${installCommand(client, project, "win32", "cmd", exclude, audit)}\n\n`);
             } else {
-                out(`${spec.label} adds MCP servers with its own command. Nothing was written. Run:\n\n  ${installCommand(client, project, io.platform, undefined, exclude)}\n\n`);
+                out(`${spec.label} adds MCP servers with its own command. Nothing was written. Run:\n\n  ${installCommand(client, project, io.platform, undefined, exclude, audit)}\n\n`);
             }
             out(`Access: ${project} (only this folder, read-only)\n`);
             out(describeExcluded(exclude, [project], SKIP_DIRS).join("\n") + "\n");
+            out(describeAudit(audit, io));
             out(`Then check the connection${io.platform === "win32" ? " (PowerShell)" : ""}: npx -y ${PACKAGE_SPEC} doctor --client ${client} --project ${hintArg(project, io.platform)}\n`);
             out(percentNote(project));
             return 0;
@@ -209,9 +254,11 @@ async function runSetup(opts, io) {
         const seed = !opts.config && spec.legacyConfigPath ? spec.legacyConfigPath(ctx) : null;
         const { previous } = planFileChange(file, serverEntry(folder, io.platform), seed);
         const exclude = await chooseExcludes(opts, io, previous);
-        const plan = planFileChange(file, serverEntry(folder, io.platform, exclude), seed);
+        const audit = await chooseAuditLog(opts, io, previous, project);
+        const plan = planFileChange(file, serverEntry(folder, io.platform, exclude, audit), seed);
         out(describePlan(client, plan, project));
         out(describeExcluded(exclude, [project], SKIP_DIRS).join("\n") + "\n");
+        out(describeAudit(audit, io));
         out(percentNote(project));
 
         if (plan.action === "unchanged") {
