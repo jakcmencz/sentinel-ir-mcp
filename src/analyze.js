@@ -1,6 +1,7 @@
 "use strict";
 
 const fs = require("fs/promises");
+const { createHash } = require("crypto");
 const { constants, realpathSync } = require("fs");
 const path = require("path");
 const { analyzeAsync, compress } = require("sentinel-ir");
@@ -35,7 +36,7 @@ function resolveAllowed(requested, roots, excluder) {
 // path may be swapped for a symlink between the check and the read. The open
 // handle must be a regular file whose inode is the one now found at a real
 // path inside the allowed folders, and at most maxFileBytes are read.
-async function readInside(full, roots, maxFileBytes, label, excluder = NONE) {
+async function readInside(full, roots, maxFileBytes, label, excluder = NONE, onRead = null) {
     let handle;
     try {
         handle = await fs.open(full, OPEN_FLAGS);
@@ -73,6 +74,8 @@ async function readInside(full, roots, maxFileBytes, label, excluder = NONE) {
         }
         if (length > maxFileBytes) throw new TooLargeError(`File too large: ${label} grew past the limit of ${maxFileBytes} bytes`);
         if (length === buffer.length) throw new AccessError(`Access denied: ${label} changed while it was being read`);
+        // The audit log records which bytes were read, never the bytes.
+        if (onRead) onRead(createHash("sha256").update(buffer.subarray(0, length)).digest("hex"));
         return buffer.toString("utf8", 0, length);
     } finally {
         await handle.close();
@@ -94,7 +97,7 @@ async function analyzeCode(code, target, language) {
     return compress(ir);
 }
 
-async function analyzeFile(requested, roots, { maxFileBytes, excluder = NONE }) {
+async function analyzeFile(requested, roots, { maxFileBytes, excluder = NONE, hashes = null }) {
     const { real, display } = resolveAllowed(requested, roots, excluder);
     const stat = await fs.stat(real);
     if (!stat.isFile()) throw new AccessError(`Not a file: ${requested}`);
@@ -104,7 +107,7 @@ async function analyzeFile(requested, roots, { maxFileBytes, excluder = NONE }) 
     if (stat.size > maxFileBytes) {
         throw new AccessError(`File too large: ${requested} is ${stat.size} bytes, limit is ${maxFileBytes}`);
     }
-    const code = await readInside(real, roots, maxFileBytes, requested, excluder);
+    const code = await readInside(real, roots, maxFileBytes, requested, excluder, hashes && ((h) => hashes.set(display, h)));
     return analyzeCode(code, display);
 }
 
@@ -221,7 +224,7 @@ function fullEntry(rel, ir) {
 async function analyzeDirectory(
     requested,
     roots,
-    { maxFiles, maxFileBytes, recursive = true, timeBudgetMs = Infinity, detail = "summary", excluder = NONE }
+    { maxFiles, maxFileBytes, recursive = true, timeBudgetMs = Infinity, detail = "summary", excluder = NONE, hashes = null }
 ) {
     const started = Date.now();
     const { real, root, display } = resolveAllowed(requested, roots, excluder);
@@ -241,7 +244,9 @@ async function analyzeDirectory(
         // One file that cannot be read or analyzed must not hide the others.
         let ir;
         try {
-            ir = await analyzeCode(await readInside(full, [root], maxFileBytes, rel, excluder), rel);
+            let hash = null;
+            ir = await analyzeCode(await readInside(full, [root], maxFileBytes, rel, excluder, hashes && ((h) => { hash = h; })), rel);
+            if (hash) hashes.set(rel, hash);
         } catch (err) {
             if (err instanceof ExcludedError) {
                 skipped.excluded++;
