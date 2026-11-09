@@ -155,16 +155,17 @@ test("no --audit-log: nothing is written anywhere", async () => {
 test("--audit-log alone uses the default folder for this system", async () => {
     const sb = sandbox();
     const state = path.join(sb.base, "state");
-    const { client } = await connect(["--audit-log", sb.project], { HOME: sb.home, XDG_STATE_HOME: state });
+    const env = { HOME: sb.home, XDG_STATE_HOME: state, LOCALAPPDATA: state };
+    const { client } = await connect(["--audit-log", sb.project], env);
     try {
         await call(client, "analyze_file", { path: "app.js" });
     } finally {
         await client.close();
     }
     try {
-        const dir = path.join(state, "sentinel-ir-mcp", "audit-log");
+        const dir = defaultAuditDir(env, process.platform);
         assert.equal((await waitForLines(dir, 2)).length, 2);
-        const view = await cli(sb, "log", [], { env: { XDG_STATE_HOME: state } });
+        const view = await cli(sb, "log", [], { env, platform: process.platform });
         assert.match(view.stdout, /file app\.js: low/);
     } finally {
         sb.cleanup();
@@ -356,7 +357,8 @@ test("assertOutsideProjects follows symlinks and ignores case where the system d
     const sb = sandbox();
     try {
         assert.throws(() => assertOutsideProjects("/P/x", ["/p"], true), AuditLogError);
-        assert.doesNotThrow(() => assertOutsideProjects("/P/x", ["/p"], false));
+        // Windows paths never differ by case only (path.win32.relative ignores case).
+        if (process.platform !== "win32") assert.doesNotThrow(() => assertOutsideProjects("/P/x", ["/p"], false));
         assert.doesNotThrow(() => assertOutsideProjects(sb.logs, [sb.project], false));
         if (process.platform !== "win32") {
             fs.symlinkSync(sb.project, path.join(sb.base, "alias"));
@@ -374,7 +376,7 @@ test("setup: --audit-log turns it on, rerunning keeps it, --no-audit-log turns i
         const on = await cli(sb, "setup", ["--client", "windsurf", "--audit-log", "--yes"]);
         assert.equal(on.code, 0, on.stderr);
         assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.4", "--audit-log", sb.project]);
-        assert.match(on.stdout, /Audit log: on, in .*\.local\/state\/sentinel-ir-mcp\/audit-log/);
+        assert.match(on.stdout, /Audit log: on, in .*\.local[\\/]state[\\/]sentinel-ir-mcp[\\/]audit-log/);
         assert.match(on.stdout, /see it: npx -y sentinel-ir-mcp@0\.4 log\n/);
         const keep = await cli(sb, "setup", ["--client", "windsurf", "--yes"]);
         assert.match(keep.stdout, /Already set up/);
@@ -382,7 +384,7 @@ test("setup: --audit-log turns it on, rerunning keeps it, --no-audit-log turns i
         const moved = await cli(sb, "setup", ["--client", "windsurf", `--audit-log=${sb.logs}`, "--exclude", "secrets", "--yes"]);
         assert.equal(moved.code, 0, moved.stderr);
         assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.4", "--exclude=secrets", `--audit-log=${sb.logs}`, sb.project]);
-        assert.match(moved.stdout, new RegExp(`log --dir ${sb.logs}`));
+        assert.match(moved.stdout, new RegExp(`log --dir ${sb.logs.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")}`));
         assert.deepEqual(entryFolders(argsOf(sb)), [sb.project]);
         const off = await cli(sb, "setup", ["--client", "windsurf", "--no-audit-log", "--yes"]);
         assert.equal(off.code, 0);
