@@ -6,8 +6,10 @@ it lets AI agents in Claude Desktop, Cursor, Windsurf or any other
 compact **structural IR** of JavaScript, TypeScript and Python files instead of the raw source.
 
 - npm: <https://www.npmjs.com/package/sentinel-ir-mcp>
-- GitLab: <https://gitlab.com/jakubrojicek11/sentinel-ir-mcp>
-- Library behind it: <https://gitlab.com/jakubrojicek11/sentinel-ir>
+- GitLab (main repository): <https://gitlab.com/jakubrojicek11/sentinel-ir-mcp>
+- GitHub (mirror): <https://github.com/jakcmencz/sentinel-ir-mcp>
+- Library behind it: [`sentinel-ir`](https://github.com/jakcmencz/sentinel-ir)
+- See what the agent sees, in your browser: <https://sentinel-ir-playground-dc30c8.gitlab.io/>
 
 The IR tells the agent what a file *does* (risk level, dangerous
 capabilities such as `eval` or `child_process`, routes, exports, imports,
@@ -505,6 +507,15 @@ Code commands pasted into PowerShell 5.1, PowerShell 7 and cmd.exe. See
 
 Release: bump `version` in `package.json`, push a protected tag `vX.Y.Z`;
 GitLab CI tests and publishes to npm with provenance.
+
+## Contributing
+
+Development, CI and npm releases run on
+[GitLab](https://gitlab.com/jakubrojicek11/sentinel-ir-mcp). The
+[GitHub repository](https://github.com/jakcmencz/sentinel-ir-mcp) is a mirror
+that GitLab updates on every push to `main` and every tag. Issues are welcome
+on either; a pull request opened on GitHub is applied on GitLab, and the mirror
+then brings it back.
 
 ## License
 
