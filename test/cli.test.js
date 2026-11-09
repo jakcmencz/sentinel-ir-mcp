@@ -15,6 +15,13 @@ test("--version and --help", () => {
     assert.match(help.stdout, /Usage: sentinel-ir-mcp/);
 });
 
+test("server.json for the MCP Registry matches package.json", () => {
+    const server = require("../server.json");
+    assert.equal(server.name, pkg.mcpName);
+    assert.equal(server.version, pkg.version);
+    assert.deepEqual(server.packages.map((p) => [p.identifier, p.version]), [[pkg.name, pkg.version]]);
+});
+
 test("invalid arguments exit with code 2", () => {
     for (const args of [["--nope"], ["/definitely/not/here"], ["--max-files", "0"], ["--max-files=501"], ["--max-file-bytes", "abc"]]) {
         const r = run(...args);
