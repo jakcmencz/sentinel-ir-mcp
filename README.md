@@ -27,6 +27,11 @@ of safety. Other languages are not supported yet. What is detected in Python
 (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.4.6** is listed in the official
+[MCP Registry](https://registry.modelcontextprotocol.io) as
+`io.github.jakcmencz/sentinel-ir-mcp`, so clients that browse the registry
+can find and install it. Nothing else changes.
+
 **0.4.5** adds to that log the SHA-256 of every file the server read, so you
 can check later which version of a file the agent was shown (see
 [Audit log](#audit-log)).
@@ -505,8 +510,11 @@ starting the published package through `npx`, and the printed VS Code/Claude
 Code commands pasted into PowerShell 5.1, PowerShell 7 and cmd.exe. See
 [COMPATIBILITY.md](COMPATIBILITY.md).
 
-Release: bump `version` in `package.json`, push a protected tag `vX.Y.Z`;
-GitLab CI tests and publishes to npm with provenance.
+Release: bump `version` in `package.json` and both `version` fields in
+`server.json` (a test checks they match), push a protected tag `vX.Y.Z`;
+GitLab CI tests and publishes to npm with provenance. Then publish the same
+`server.json` to the MCP Registry: `mcp-publisher login github` and
+`mcp-publisher publish`.
 
 ## Contributing
 
