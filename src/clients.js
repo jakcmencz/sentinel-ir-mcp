@@ -60,6 +60,26 @@ function excludeArgs(exclude = []) {
     return exclude.map((p) => `--exclude=${p}`);
 }
 
+// audit: null = off, { dir: null } = the default folder, { dir } = that folder.
+function auditArgs(audit) {
+    if (!audit) return [];
+    return [audit.dir ? `--audit-log=${audit.dir}` : "--audit-log"];
+}
+
+function serverFlags(exclude = [], audit = null) {
+    return [...excludeArgs(exclude), ...auditArgs(audit)];
+}
+
+function entryAuditLog(args) {
+    let audit = null;
+    for (const raw of args) {
+        const a = String(raw);
+        if (a === "--audit-log") audit = { dir: null };
+        else if (a.startsWith("--audit-log=")) audit = { dir: a.slice("--audit-log=".length) };
+    }
+    return audit;
+}
+
 // Exclusions in an entry's arguments, in both spellings the server accepts.
 function entryExcludes(args) {
     const out = [];
@@ -71,14 +91,14 @@ function entryExcludes(args) {
     return out;
 }
 
-function npxEntry(folder, exclude = []) {
-    return { command: "npx", args: ["-y", PACKAGE_SPEC, ...excludeArgs(exclude), folder] };
+function npxEntry(folder, exclude = [], audit = null) {
+    return { command: "npx", args: ["-y", PACKAGE_SPEC, ...serverFlags(exclude, audit), folder] };
 }
 
 // On Windows npx is npx.cmd, which a client cannot start without a shell
 // (measured: spawn("npx") fails with ENOENT), so the entry goes through cmd /c.
-function serverEntry(folder, platform = process.platform, exclude = []) {
-    const { command, args } = npxEntry(folder, exclude);
+function serverEntry(folder, platform = process.platform, exclude = [], audit = null) {
+    const { command, args } = npxEntry(folder, exclude, audit);
     return platform === "win32" ? { command: "cmd", args: ["/c", command, ...args] } : { command, args };
 }
 
@@ -100,8 +120,8 @@ function windowsArgQuote(value) {
     return `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, "$1$1")}"`;
 }
 
-function vscodeConfig(project, exclude = []) {
-    return { name: SERVER_NAME, type: "stdio", ...npxEntry(project, exclude) };
+function vscodeConfig(project, exclude = [], audit = null) {
+    return { name: SERVER_NAME, type: "stdio", ...npxEntry(project, exclude, audit) };
 }
 
 // code.cmd/claude.cmd re-read their arguments through cmd.exe, which acts on
@@ -113,22 +133,23 @@ function cmdSafeJson(value) {
 
 // Windows forms were checked in CI against a .cmd shim (like code.cmd and
 // claude.cmd) from PowerShell 5.1, PowerShell 7 and cmd.exe.
-// Exclusions never contain " & | < > ^ % ! (normalizePattern refuses them).
-function installCommand(client, project, platform = process.platform, shell = "powershell", exclude = []) {
-    const json = JSON.stringify(vscodeConfig(project, exclude));
+// Exclusions and audit log folders never contain " & | < > ^ % ! (both are
+// checked before they get here).
+function installCommand(client, project, platform = process.platform, shell = "powershell", exclude = [], audit = null) {
+    const json = JSON.stringify(vscodeConfig(project, exclude, audit));
     const win = platform === "win32";
     if (client === "vscode") {
         if (!win) return `code --add-mcp ${shellQuote(json)}`;
-        return `code ${shell === "cmd" ? "" : "--% "}--add-mcp ${windowsArgQuote(cmdSafeJson(vscodeConfig(project, exclude)))}`;
+        return `code ${shell === "cmd" ? "" : "--% "}--add-mcp ${windowsArgQuote(cmdSafeJson(vscodeConfig(project, exclude, audit)))}`;
     }
     if (client === "claude-code") {
-        const ex = excludeArgs(exclude);
+        const ex = serverFlags(exclude, audit);
         if (win && shell !== "cmd") {
             // PowerShell prefers npm's claude.ps1 shim: a script gets `--` only when quoted, and --% does not apply to it.
             return `claude mcp add --transport stdio ${SERVER_NAME} '--' cmd /c npx -y ${PACKAGE_SPEC} ${ex.map((a) => powershellQuote(a) + " ").join("")}${powershellQuote(project)}`;
         }
         if (win && project.includes("%")) {
-            const config = { type: "stdio", ...serverEntry(project, "win32", exclude) };
+            const config = { type: "stdio", ...serverEntry(project, "win32", exclude, audit) };
             return `claude mcp add-json ${SERVER_NAME} ${windowsArgQuote(cmdSafeJson(config))}`;
         }
         const quote = win ? (a) => `"${a}"` : shellQuote;
@@ -149,5 +170,5 @@ function installLinks() {
 
 module.exports = {
     SERVER_NAME, PACKAGE_SPEC, WORKSPACE_VAR, CLIENTS, CLIENT_NAMES, FILE_CLIENTS,
-    homeOf, npxEntry, serverEntry, excludeArgs, entryExcludes, isWindowsNpxWrapper, shellQuote, powershellQuote, installCommand, installLinks
+    homeOf, npxEntry, serverEntry, excludeArgs, entryExcludes, serverFlags, entryAuditLog, isWindowsNpxWrapper, shellQuote, powershellQuote, installCommand, installLinks
 };

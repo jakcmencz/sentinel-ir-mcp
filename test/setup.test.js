@@ -32,7 +32,7 @@ async function setup(sb, argv, extra = {}) {
         isTTY: Boolean(extra.answer !== undefined),
         questions: [],
         prompt: extra.answer !== undefined
-            ? async (q) => (q.startsWith("Files or folders") ? (extra.excludeAnswer ?? "") : extra.answer)
+            ? async (q) => (q.startsWith("Files or folders") ? (extra.excludeAnswer ?? "") : q.startsWith("Keep a log") ? (extra.auditAnswer ?? "") : extra.answer)
             : null,
         now: () => Date.UTC(2026, 9, 18, 12, 0, 0)
     };

@@ -5,7 +5,8 @@ const path = require("path");
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
 const { version } = require("../package.json");
-const { SERVER_NAME, PACKAGE_SPEC, WORKSPACE_VAR, CLIENTS, FILE_CLIENTS, isWindowsNpxWrapper, entryExcludes, excludeArgs } = require("./clients");
+const { SERVER_NAME, PACKAGE_SPEC, WORKSPACE_VAR, CLIENTS, FILE_CLIENTS, isWindowsNpxWrapper, entryExcludes, entryAuditLog, serverFlags } = require("./clients");
+const { AuditLogError, defaultAuditDir, normalizeAuditDir, assertOutsideProjects, logFiles, dayName } = require("./auditLog");
 const { readConfig } = require("./setup");
 const { createExcluder, ExcludeError } = require("./exclude");
 const { SKIP_DIRS } = require("./analyze");
@@ -49,7 +50,7 @@ function checkExcludes(client, label, args, file, add) {
     }
 }
 
-function checkConfig(client, file, explicit, project, add, platform) {
+function checkConfig(client, file, explicit, project, add, platform, env) {
     const label = CLIENTS[client].label;
     if (!file) {
         if (explicit) add("fail", `${client}.config`, `${label}: config location unknown on this system`, "Pass the config path with --config <file>.");
@@ -102,7 +103,39 @@ function checkConfig(client, file, explicit, project, add, platform) {
     if (folders.length === 0) add("warn", `${client}.folder`, `${label}: no folder given; the file tools rely on the client's MCP roots`);
     const exclude = checkExcludes(client, label, args, file, add);
     if (exclude === null) return null;
-    return { folders: resolved, exclude };
+    let audit = entryAuditLog(args);
+    if (audit) {
+        try {
+            const dir = audit.dir ? normalizeAuditDir(audit.dir) : defaultAuditDir(env, platform);
+            assertOutsideProjects(dir, resolved);
+            audit = { dir: audit.dir ? dir : null, path: dir };
+        } catch (e) {
+            if (!(e instanceof AuditLogError)) throw e;
+            add("fail", `${client}.audit`, `${label}: ${e.message}; the server will not start`,
+                `Run: npx -y ${PACKAGE_SPEC} setup --client ${client} --audit-log  (or --no-audit-log)`);
+            return { folders: resolved, exclude, audit: null, auditBroken: true };
+        }
+    }
+    return { folders: resolved, exclude, audit };
+}
+
+function formatBytes(n) {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} kB`;
+    return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function describeAuditFolder(dir) {
+    const files = logFiles(dir);
+    let bytes = 0;
+    for (const f of files) {
+        try { bytes += fs.statSync(path.join(dir, f)).size; } catch { /* removed meanwhile */ }
+    }
+    return files.length ? `${files.length} day(s), ${formatBytes(bytes)}` : "empty so far";
+}
+
+function fileSize(file) {
+    try { return fs.statSync(file).size; } catch { return -1; }
 }
 
 function withTimeout(promise, ms, what) {
@@ -113,8 +146,11 @@ function withTimeout(promise, ms, what) {
     ]).finally(() => clearTimeout(timer));
 }
 
-async function checkHandshake(folders, exclude, add, timeoutMs) {
-    const transport = new StdioClientTransport({ command: process.execPath, args: [BIN, ...excludeArgs(exclude), ...folders], stderr: "pipe" });
+async function checkHandshake(folders, exclude, audit, add, timeoutMs) {
+    const flags = serverFlags(exclude, audit && { dir: audit.path });
+    const transport = new StdioClientTransport({ command: process.execPath, args: [BIN, ...flags, ...folders], stderr: "pipe" });
+    const today = audit ? path.join(audit.path, dayName(new Date())) : null;
+    const before = today ? fileSize(today) : -1;
     const client = new Client({ name: "sentinel-ir-mcp-doctor", version });
     try {
         await withTimeout(client.connect(transport), timeoutMs, "MCP handshake");
@@ -133,6 +169,12 @@ async function checkHandshake(folders, exclude, add, timeoutMs) {
     } finally {
         await client.close().catch(() => {});
     }
+    if (!audit) return;
+    // The server writes the log after it answers; give it a moment.
+    for (let i = 0; i < 40 && fileSize(today) <= before; i++) await new Promise((r) => setTimeout(r, 50));
+    if (fileSize(today) > before) add("ok", "audit.write", `Audit log: this check was written to ${today}`);
+    else add("fail", "audit.write", `Audit log: nothing could be written to ${audit.path}`,
+        "Check that the folder exists or can be created and that you may write to it (disk full?). The tools still work without the log.");
 }
 
 const MARK = { ok: "[ok]  ", warn: "[warn]", fail: "[FAIL]", skip: "[skip]" };
@@ -155,6 +197,8 @@ async function runDoctor(opts, io) {
     const names = opts.client ? (CLIENTS[opts.client] && CLIENTS[opts.client].kind === "file" ? [opts.client] : []) : FILE_CLIENTS;
     let folders = null;
     let exclude = [];
+    let audit = null;
+    let auditBroken = false;
     for (const client of names) {
         const ctx = { project, global: Boolean(opts.global), env: io.env, platform: io.platform };
         let file = opts.config ? path.resolve(io.cwd, opts.config) : CLIENTS[client].configPath(ctx);
@@ -164,8 +208,8 @@ async function runDoctor(opts, io) {
                 `Current ${CLIENTS[client].label} reads ${file || "a new location"}. Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
             file = legacy;
         }
-        const found = checkConfig(client, file, Boolean(opts.client), project, add, io.platform);
-        if (found && folders === null) ({ folders, exclude } = found);
+        const found = checkConfig(client, file, Boolean(opts.client), project, add, io.platform, io.env);
+        if (found && folders === null) ({ folders, exclude, audit, auditBroken = false } = found);
     }
     if (folders === null) {
         let isDir = false;
@@ -177,7 +221,9 @@ async function runDoctor(opts, io) {
         }
     }
     for (const line of describeExcluded(exclude, folders, SKIP_DIRS)) add("ok", "exclude", line);
-    await checkHandshake(folders, exclude, add, opts.timeoutMs || 30000);
+    if (audit) add("ok", "audit", `Audit log: on, in ${audit.path} (${describeAuditFolder(audit.path)}); see it: npx -y ${PACKAGE_SPEC} log${audit.dir ? ` --dir "${audit.dir}"` : ""}`);
+    else if (!auditBroken) add("ok", "audit", `Audit log: off (turn it on: npx -y ${PACKAGE_SPEC} setup --audit-log)`);
+    await checkHandshake(folders, exclude, audit, add, opts.timeoutMs || 30000);
 
     const failed = checks.some((c) => c.status === "fail");
     if (opts.json) {

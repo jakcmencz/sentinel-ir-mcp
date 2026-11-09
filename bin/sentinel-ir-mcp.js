@@ -9,33 +9,40 @@ const path = require("path");
 const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio.js");
 const { createServer, DEFAULT_LIMITS } = require("../src/server");
 const { normalizePattern, ExcludeError, MAX_PATTERNS } = require("../src/exclude");
+const { AuditLogError, defaultAuditDir, normalizeAuditDir, assertOutsideProjects } = require("../src/auditLog");
 const { version } = require("../package.json");
 
-const USAGE = `sentinel-ir-mcp ${version} — MCP server for sentinel-ir (JavaScript and TypeScript)
+const USAGE = `sentinel-ir-mcp ${version} — MCP server for sentinel-ir (JavaScript, TypeScript and Python)
 
 Usage: sentinel-ir-mcp [options] [folder ...]
-       sentinel-ir-mcp setup | doctor | guide [--help]
+       sentinel-ir-mcp setup | doctor | guide | log [--help]
 
   setup                  Connect Sentinel-IR to an AI client (shows the change first)
   doctor                 Check Node.js, the client config and a real MCP connection
   guide                  Print short usage instructions for AI agents
+  log                    Show what the agent asked for (needs --audit-log)
 
   folder                 Folder(s) the file tools may read. A folder named like a
-                         command must be written as ./setup, ./doctor or ./guide. Without folders the
-                         server uses the MCP roots offered by the client; if the
+                         command must be written as ./setup, ./doctor, ./guide or
+                         ./log. Without folders the server uses the MCP roots offered by the client; if the
                          client offers none, only analyze_code works.
   --exclude <name>       A file or folder the file tools must refuse; repeat for more.
                          secrets = any file or folder named so, config/prod.js =
                          this path in an allowed folder, *.min.js = by mask,
                          ** = any folders. Set by you; the project cannot change it.
+  --audit-log            Write a log of what the agent asks this server for (paths,
+                         results, refusals; never source code) to
+                         ${defaultAuditDir()}
+  --audit-log=<folder>   The same log in another folder (a full path outside the project)
   --max-file-bytes <n>   Largest file to analyze (default ${DEFAULT_LIMITS.maxFileBytes}, max ${DEFAULT_LIMITS.hardMaxFileBytes})
   --time-budget-ms <n>   analyze_directory starts no new file after this time (default ${DEFAULT_LIMITS.timeBudgetMs}, max ${DEFAULT_LIMITS.hardMaxTimeBudgetMs})
   --max-files <n>        Default file limit for analyze_directory (default ${DEFAULT_LIMITS.maxFiles}, max ${DEFAULT_LIMITS.hardMaxFiles})
   -h, --help             Show this help
   -v, --version          Show the version
 
-The server only reads files. It never writes, executes or uses the network.
-Only "setup" writes, and only the client config file you confirm.`;
+The server only reads files. It never executes code or uses the network, and it
+writes nothing except the audit log when you turn it on. "setup" writes only the
+client config file you confirm. See the log with: sentinel-ir-mcp log`;
 
 function die(message) {
     process.stderr.write(`sentinel-ir-mcp: ${message}\n\n${USAGE}\n`);
@@ -70,6 +77,11 @@ function parseArgs(argv) {
                 die(e.message);
             }
             if (opts.exclude.length > MAX_PATTERNS) die(`at most ${MAX_PATTERNS} --exclude options`);
+        } else if (arg === "--audit-log") {
+            try { opts.auditDir = value === undefined ? defaultAuditDir() : normalizeAuditDir(value); } catch (e) {
+                if (!(e instanceof AuditLogError)) throw e;
+                die(e.message);
+            }
         } else if (arg.startsWith("-")) {
             die(`unknown option ${arg}`);
         } else {
@@ -78,6 +90,12 @@ function parseArgs(argv) {
             try { isDir = fs.statSync(dir).isDirectory(); } catch { /* reported below */ }
             if (!isDir) die(`not a folder: ${arg}`);
             opts.roots.push(dir);
+        }
+    }
+    if (opts.auditDir) {
+        try { assertOutsideProjects(opts.auditDir, opts.roots); } catch (e) {
+            if (!(e instanceof AuditLogError)) throw e;
+            die(e.message);
         }
     }
     return opts;

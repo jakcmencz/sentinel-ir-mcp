@@ -345,20 +345,20 @@ test("setup refuses a bad exclusion and writes nothing; it warns about a pattern
 test("interactive setup asks once: answer, Enter keeps, - removes", async () => {
     const sb = sandbox();
     try {
-        const first = await cli(sb, "setup", ["--client", "windsurf"], { answers: [" secrets , dist ,, ", "y"] });
+        const first = await cli(sb, "setup", ["--client", "windsurf"], { answers: [" secrets , dist ,, ", "", "y"] });
         assert.equal(first.code, 0, first.stderr);
         assert.match(first.questions[0], /Enter = none/);
         assert.deepEqual(argsOf(sb).slice(2, 4), ["--exclude=secrets", "--exclude=dist"]);
-        const keep = await cli(sb, "setup", ["--client", "windsurf"], { answers: [""] });
+        const keep = await cli(sb, "setup", ["--client", "windsurf"], { answers: ["", ""] });
         assert.match(keep.questions[0], /now: secrets, dist; Enter = keep, - = none/);
         assert.match(keep.stdout, /Already set up/);
-        const clear = await cli(sb, "setup", ["--client", "windsurf"], { answers: ["-", "y"] });
+        const clear = await cli(sb, "setup", ["--client", "windsurf"], { answers: ["-", "", "y"] });
         assert.equal(clear.code, 0);
         assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.4", sb.project]);
         const invalid = await cli(sb, "setup", ["--client", "windsurf"], { answers: ["a|b"] });
         assert.equal(invalid.code, 1);
         assert.match(invalid.stderr, /not allowed/);
-        const cmd = await cli(sb, "setup", ["--client", "claude-code"], { answers: ["secrets"] });
+        const cmd = await cli(sb, "setup", ["--client", "claude-code"], { answers: ["secrets", ""] });
         assert.match(cmd.stdout, /npx -y sentinel-ir-mcp@0\.4 --exclude=secrets /);
     } finally {
         sb.cleanup();

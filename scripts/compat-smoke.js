@@ -98,6 +98,15 @@ async function handshake(command, args, cwd) {
         step(`doctor ${client}`, d.code === 0 && r.ok === true, (r.checks || []).map((c) => `${c.status}:${c.id}`).join(" ") || r.raw);
     }
 
+    // Audit log through the same "cmd /c" start a Windows client uses, in a
+    // folder whose name has a space and a non-ASCII letter.
+    const logDir = path.join(base, "my logs č");
+    const viaShell = process.platform === "win32" ? ["cmd", ["/c", process.execPath, bin]] : [process.execPath, [bin]];
+    report.auditLog = await handshake(viaShell[0], [...viaShell[1], `--audit-log=${logDir}`, project], base);
+    await new Promise((r) => setTimeout(r, 500));
+    const logView = cli(`log --dir "${logDir}"`);
+    step("audit log written and shown", report.auditLog.ok && logView.code === 0 && /folder \S*: 2 file\(s\)/.test(logView.out), logView.out.split("\n").slice(0, 4));
+
     const npxSpec = publishedSpec();
     report.npxSpec = npxSpec;
     console.log(`INFO npx checks start ${npxSpec} (written by setup: ${PACKAGE_SPEC})`);
