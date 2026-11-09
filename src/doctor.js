@@ -6,7 +6,7 @@ const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
 const { version } = require("../package.json");
 const { SERVER_NAME, PACKAGE_SPEC, WORKSPACE_VAR, CLIENTS, FILE_CLIENTS, isWindowsNpxWrapper, entryExcludes, entryAuditLog, serverFlags } = require("./clients");
-const { AuditLogError, defaultAuditDir, normalizeAuditDir, assertOutsideProjects, logFiles, dayName } = require("./auditLog");
+const { AuditLogError, defaultAuditDir, normalizeAuditDir, assertOutsideProjects, logFiles, dayName, createAuditLog } = require("./auditLog");
 const { readConfig } = require("./setup");
 const { createExcluder, ExcludeError } = require("./exclude");
 const { SKIP_DIRS } = require("./analyze");
@@ -147,7 +147,9 @@ function withTimeout(promise, ms, what) {
 }
 
 async function checkHandshake(folders, exclude, audit, add, timeoutMs) {
-    const flags = serverFlags(exclude, audit && { dir: audit.path });
+    // Without the audit log, so the check does not fill it with its own calls;
+    // the log is proved below with one "check" line from the same writer.
+    const flags = serverFlags(exclude, null);
     const transport = new StdioClientTransport({ command: process.execPath, args: [BIN, ...flags, ...folders], stderr: "pipe" });
     const today = audit ? path.join(audit.path, dayName(new Date())) : null;
     const before = today ? fileSize(today) : -1;
@@ -170,9 +172,10 @@ async function checkHandshake(folders, exclude, audit, add, timeoutMs) {
         await client.close().catch(() => {});
     }
     if (!audit) return;
-    // The server writes the log after it answers; give it a moment.
-    for (let i = 0; i < 40 && fileSize(today) <= before; i++) await new Promise((r) => setTimeout(r, 50));
-    if (fileSize(today) > before) add("ok", "audit.write", `Audit log: this check was written to ${today}`);
+    const log = createAuditLog({ dir: audit.path, onError: () => {} });
+    log.record({ event: "check", version });
+    await log.flush();
+    if (fileSize(today) > before) add("ok", "audit.write", `Audit log: can be written (doctor added one "check" line to ${today})`);
     else add("fail", "audit.write", `Audit log: nothing could be written to ${audit.path}`,
         "Check that the folder exists or can be created and that you may write to it (disk full?). The tools still work without the log.");
 }

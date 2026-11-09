@@ -40,7 +40,7 @@ of safety. Other languages are not supported yet. What is detected in Python
       critical src/app.js
   ```
 - `doctor` says whether the log is on, where it is and how big, and proves the
-  server can write to it. Details: [Audit log](#audit-log).
+  log can be written. Details: [Audit log](#audit-log).
 
 Also uses `sentinel-ir` 0.4.5 (Python parse errors point where Python does).
 
@@ -361,8 +361,9 @@ server through `cmd`). Then read it with `log --dir <folder>`.
 - **What is not written:** source code. For `analyze_code` only the size in
   bytes, the language and the risk. Names of excluded files are not written
   either, only their count. Long values are cut to 300 characters.
-- **Cleanup:** day files older than 30 days are deleted; a day stops at 50 MB
-  with one line saying so. Other files in the folder are never touched.
+- **Cleanup:** day files older than 30 days are deleted; a day stops 1 MB
+  below 50 MB with one line saying so, so parallel servers stay under 50 MB
+  too. Other files in the folder are never touched.
 - **Set by you only,** like exclusions: the agent and the project cannot turn
   it on, off or move it. The log is never written inside the project.
 - **Safe to read:** a path with a newline cannot add a fake line (JSON
@@ -372,7 +373,12 @@ server through `cmd`). Then read it with `log --dir <folder>`.
   permission) the tools answer as usual and the server says so once on stderr;
   `doctor` reports it as `[FAIL]`. Several servers can share the folder: each
   line is one append, so lines do not mix.
-- `doctor` writes its own check into the log (client `sentinel-ir-mcp-doctor`).
+- `doctor` adds one line, `doctor checked that the log can be written`, and
+  none of its own tool calls.
+- A day file that is a symlink, junction or hard link is not written to, on
+  Windows too, so the log cannot be used to overwrite another file.
+- It records only what the agent asked **this server** for. Other file tools
+  of your AI app are not in it.
 - Files are created readable by you only (`0600`, folder `0700`; on Windows
   the folder in `%LOCALAPPDATA%` is private to your account).
 

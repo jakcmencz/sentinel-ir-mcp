@@ -43,6 +43,7 @@ function describe(e) {
         const folders = Array.isArray(e.folders) && e.folders.length ? ` for ${e.folders.map(safe).join(", ")}` : "";
         return [`server started (sentinel-ir-mcp ${safe(e.version)})${folders}`];
     }
+    if (e.event === "check") return [`doctor checked that the log can be written`];
     if (e.event === "full") return [`the log for this day reached its size limit; nothing more is written today`];
     const what = TOOL_WORDS[e.tool] ? TOOL_WORDS[e.tool] : safe(e.tool);
     const target = e.tool === "analyze_code" ? `${what} (${Number(e.bytes) || 0} bytes${e.language ? `, ${safe(e.language)}` : ""})` : `${what} ${safe(e.path)}`;

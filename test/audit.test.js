@@ -269,19 +269,69 @@ test("a day's file stops at the size limit with one note; old days are removed",
     }
 });
 
-test("the log file is never written through a symlink", { skip: process.platform === "win32" }, async () => {
+test("a day file with a second name (hard link) is not written, on every system", async () => {
+    const sb = sandbox();
+    try {
+        fs.mkdirSync(sb.logs);
+        const victim = path.join(sb.base, "victim.txt");
+        fs.writeFileSync(victim, "keep\n");
+        fs.linkSync(victim, path.join(sb.logs, dayName(new Date())));
+        const errors = [];
+        const log = createAuditLog({ dir: sb.logs, onError: (m) => errors.push(m) });
+        log.record({ tool: "analyze_file", path: "a.js", ok: true });
+        log.record({ tool: "analyze_file", path: "b.js", ok: true });
+        await log.flush();
+        assert.equal(fs.readFileSync(victim, "utf8"), "keep\n");
+        assert.equal(errors.length, 1, "reported once");
+        assert.match(errors[0], /hard link/);
+    } finally {
+        sb.cleanup();
+    }
+});
+
+test("a day stops below 50 MB even when the next line would cross it", async () => {
+    const sb = sandbox();
+    try {
+        fs.mkdirSync(sb.logs);
+        const file = path.join(sb.logs, dayName(new Date()));
+        fs.writeFileSync(file, "");
+        fs.truncateSync(file, MAX_DAY_BYTES - 1024 * 1024 - 10);
+        const log = createAuditLog({ dir: sb.logs, onError: (m) => assert.fail(m) });
+        log.record({ tool: "analyze_file", path: "x".repeat(200), ok: true });
+        log.record({ tool: "analyze_file", path: "y", ok: true });
+        await log.flush();
+        const tail = fs.readFileSync(file).subarray(MAX_DAY_BYTES - 1024 * 1024 - 10).toString();
+        assert.deepEqual(tail.split("\n").filter(Boolean).map((l) => JSON.parse(l).event), ["full"]);
+        assert.ok(fs.statSync(file).size < MAX_DAY_BYTES);
+    } finally {
+        sb.cleanup();
+    }
+});
+
+test("the log file is never written through a symlink", async (t) => {
     const sb = sandbox();
     try {
         fs.mkdirSync(sb.logs);
         const victim = path.join(sb.base, "victim.txt");
         fs.writeFileSync(victim, "keep");
-        fs.symlinkSync(victim, path.join(sb.logs, dayName(new Date())));
+        const link = path.join(sb.logs, dayName(new Date()));
+        try { fs.symlinkSync(victim, link, "file"); } catch (e) {
+            if (e.code === "EPERM") return t.skip("this Windows account may not create symlinks");
+            throw e;
+        }
         const errors = [];
         const log = createAuditLog({ dir: sb.logs, onError: (m) => errors.push(m) });
         log.record({ tool: "analyze_code", ok: true });
         await log.flush();
         assert.equal(fs.readFileSync(victim, "utf8"), "keep");
         assert.equal(errors.length, 1);
+
+        const missing = path.join(sb.base, "would-be-created.txt");
+        fs.rmSync(link);
+        fs.symlinkSync(missing, link, "file");
+        log.record({ tool: "analyze_code", ok: true });
+        await log.flush();
+        assert.equal(fs.existsSync(missing), false, "a dangling symlink does not create its target");
     } finally {
         sb.cleanup();
     }
@@ -417,9 +467,9 @@ test("doctor shows the log state and proves the server can write it", async () =
         const r = await cli(sb, "doctor", ["--client", "windsurf"]);
         assert.equal(r.code, 0, r.stdout);
         assert.match(r.stdout, /\[ok\] {3}Audit log: on, in .*logs \(empty so far\); see it: npx -y sentinel-ir-mcp@0\.4 log --dir "/);
-        assert.match(r.stdout, /\[ok\] {3}Audit log: this check was written to /);
+        assert.match(r.stdout, /\[ok\] {3}Audit log: can be written \(doctor added one "check" line to /);
         const view = await cli(sb, "log", ["--dir", sb.logs]);
-        assert.match(view.stdout, /\[sentinel-ir-mcp-doctor\] folder .*: 1 file\(s\)/);
+        assert.match(view.stdout, /doctor checked that the log can be written\n\n1 entries\./, "one line, none of the doctor's tool calls");
         const again = await cli(sb, "doctor", ["--client", "windsurf"]);
         assert.match(again.stdout, /Audit log: on, in .*\(1 day\(s\), \d+\.\d kB|Audit log: on, in .*\(1 day\(s\), \d+ B/);
 

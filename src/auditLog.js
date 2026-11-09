@@ -12,6 +12,9 @@ const { homeOf } = require("./clients");
 const FILE_RE = /^audit-(\d{4})-(\d{2})-(\d{2})\.jsonl$/;
 const KEEP_DAYS = 30;
 const MAX_DAY_BYTES = 50 * 1024 * 1024;
+// A day stops this far below the limit, so lines that parallel servers append
+// in the same instant still end below MAX_DAY_BYTES (a line is at most ~10 kB).
+const DAY_RESERVE = 1024 * 1024;
 const MAX_TEXT = 300;
 const MAX_LISTED = 20;
 // Characters cmd.exe acts on: an MCP entry on Windows runs through "cmd /c".
@@ -153,11 +156,22 @@ function createAuditLog({ dir, now = () => Date.now(), onError = (m) => process.
         await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 });
         // Once per server and day, so a server running for weeks still cleans up.
         if (prunedFor !== file) { prunedFor = file; pruneOld(dir, now()); }
+        // Windows has no O_NOFOLLOW, so the checks below refuse a day file that
+        // is a symlink, junction or hard link on every system before any write.
+        const before = await fs.promises.lstat(file, { bigint: true }).catch((e) => {
+            if (e.code === "ENOENT") return null;
+            throw e;
+        });
+        if (before && !before.isFile()) throw new Error(`${file} is not a regular file`);
         const handle = await fs.promises.open(file, OPEN_FLAGS, 0o600);
         try {
-            const stat = await handle.stat();
+            const stat = await handle.stat({ bigint: true });
             if (!stat.isFile()) throw new Error(`${file} is not a regular file`);
-            if (stat.size >= MAX_DAY_BYTES) {
+            if (stat.nlink > 1n) throw new Error(`${file} has a second name (hard link); not writing`);
+            const after = await fs.promises.lstat(file, { bigint: true });
+            const same = (a) => a.isFile() && a.ino === stat.ino && a.dev === stat.dev;
+            if (!same(after) || (before && !same(before))) throw new Error(`${file} was replaced while opening; not writing`);
+            if (stat.size + BigInt(Buffer.byteLength(line)) > BigInt(MAX_DAY_BYTES - DAY_RESERVE)) {
                 if (fullDay !== file) {
                     fullDay = file;
                     await handle.write(JSON.stringify({ ts: new Date(now()).toISOString(), event: "full", limitBytes: MAX_DAY_BYTES }) + "\n");
