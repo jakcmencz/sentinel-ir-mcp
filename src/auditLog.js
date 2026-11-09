@@ -1,5 +1,6 @@
 "use strict";
 
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { homeOf } = require("./clients");
@@ -17,6 +18,7 @@ const MAX_DAY_BYTES = 50 * 1024 * 1024;
 const DAY_RESERVE = 1024 * 1024;
 const MAX_TEXT = 300;
 const MAX_LISTED = 20;
+const HASHES_PER_LINE = 40;
 // Characters cmd.exe acts on: an MCP entry on Windows runs through "cmd /c".
 const UNSAFE_DIR = /["&|<>^%!\u0000-\u001f]/;
 const OPEN_FLAGS = fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW || 0);
@@ -134,15 +136,39 @@ function describeCall(tool, args, outcome) {
         if (notRead) entry.notRead = notRead;
         if (r.truncated) entry.truncated = true;
         if (r.timedOut) entry.timedOut = true;
+        // sha256 of every analyzed file, so the user can check later which
+        // version of each file the agent was shown. splitHashes moves the
+        // full list to lines of its own.
+        const hashes = args.hashes instanceof Map ? args.hashes : new Map();
+        const withHash = (f) => (hashes.has(f.path) ? { sha256: hashes.get(f.path) } : {});
         const top = r.files.filter((f) => f.risk === "critical" || f.risk === "high").slice(0, MAX_LISTED);
-        if (top.length) entry.top = top.map((f) => ({ path: cut(f.path), risk: f.risk }));
+        if (top.length) entry.top = top.map((f) => ({ path: cut(f.path), risk: f.risk, ...withHash(f) }));
+        const files = r.files.filter((f) => hashes.has(f.path)).map((f) => ({ path: cut(f.path), risk: f.risk, ...withHash(f) }));
+        if (files.length) entry.files = files;
     } else {
         entry.risk = r.world && r.world.risk;
         entry.analysisStatus = r.analysisStatus;
         entry.language = r.language;
         if (tool === "analyze_file" && r.mission && typeof r.mission.target === "string") entry.file = cut(r.mission.target);
+        if (tool === "analyze_file" && args.hashes instanceof Map && args.hashes.size) entry.sha256 = [...args.hashes.values()][0];
     }
     return entry;
+}
+
+// A folder can have 500 files: their hashes go in follow-up lines of at most
+// HASHES_PER_LINE files (usually under 20 kB each, so DAY_RESERVE still holds and
+// one write stays one line), linked to the call by a random "call" id.
+function splitHashes(entry) {
+    if (!Array.isArray(entry.files)) return [entry];
+    const { files, ...main } = entry;
+    main.call = crypto.randomBytes(6).toString("hex");
+    main.hashed = files.length;
+    const parts = Math.ceil(files.length / HASHES_PER_LINE);
+    const more = [];
+    for (let i = 0; i < parts; i++) {
+        more.push({ event: "hashes", call: main.call, part: i + 1, parts, files: files.slice(i * HASHES_PER_LINE, (i + 1) * HASHES_PER_LINE) });
+    }
+    return [main, ...more];
 }
 
 function createAuditLog({ dir, now = () => Date.now(), onError = (m) => process.stderr.write(`sentinel-ir-mcp: ${m}\n`) } = {}) {
@@ -200,5 +226,5 @@ function createAuditLog({ dir, now = () => Date.now(), onError = (m) => process.
 
 module.exports = {
     AuditLogError, KEEP_DAYS, MAX_DAY_BYTES, FILE_RE,
-    defaultAuditDir, normalizeAuditDir, assertOutsideProjects, createAuditLog, describeCall, logFiles, dayName, cut
+    defaultAuditDir, normalizeAuditDir, assertOutsideProjects, createAuditLog, describeCall, splitHashes, HASHES_PER_LINE, logFiles, dayName, cut
 };

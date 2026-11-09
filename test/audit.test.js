@@ -97,8 +97,8 @@ test("every tool call is logged with its outcome, never with source code", async
         await client.close();
     }
     try {
-        const lines = await waitForLines(sb.logs, 8);
-        assert.equal(lines.length, 8);
+        const lines = await waitForLines(sb.logs, 9);
+        assert.equal(lines.length, 9);
         const all = lines.join("\n");
         assert.ok(!all.includes(MARKER), "source code must never reach the log");
         const [start, code, file, excluded, outside, missing, big, dir] = lines.map((l) => JSON.parse(l));
@@ -118,7 +118,7 @@ test("every tool call is logged with its outcome, never with source code", async
         assert.ok(lines.every((l) => !JSON.parse(l).message || !JSON.parse(l).message.includes(MARKER)));
         assert.equal(dir.tool, "analyze_directory");
         assert.equal(dir.excluded, 1);
-        assert.deepEqual(dir.top, [{ path: "danger.js", risk: "critical" }]);
+        assert.deepEqual(dir.top.map(({ path: p, risk }) => ({ path: p, risk })), [{ path: "danger.js", risk: "critical" }]);
         assert.ok(!JSON.stringify(dir).includes("secrets"), "excluded names stay out of the log too");
         const view = await cli(sb, "log", ["--dir", sb.logs]);
         assert.equal(view.code, 0);
@@ -126,7 +126,7 @@ test("every tool call is logged with its outcome, never with source code", async
         assert.match(view.stdout, /REFUSED file \.\.\/home\/x\.js: outside the project folder/);
         assert.match(view.stdout, /file danger\.js: critical/);
         assert.match(view.stdout, /pasted code \(\d+ bytes, typescript\): critical/);
-        assert.match(view.stdout, /folder \.: 2 file\(s\) \(1 critical, 1 low\), 1 excluded, 1 not read \(too large or unreadable\)\n {4}critical danger\.js/);
+        assert.match(view.stdout, /folder \.: 2 file\(s\) \(1 critical, 1 low\), 1 excluded, 1 not read \(too large or unreadable\), sha256 of 2 file\(s\) in log --json\n {4}critical danger\.js sha256 [0-9a-f]{12}\n/);
         assert.match(view.stdout, /8 entries\. Log folder: /);
     } finally {
         sb.cleanup();
@@ -540,4 +540,81 @@ test("describeCall keeps long values short and counts code in bytes", () => {
     assert.doesNotThrow(() => Buffer.from(e.path, "utf8").toString("utf8"));
     assert.ok(!/[\ud800-\udbff]…$/.test(e.path), "no half emoji at the cut");
     assert.equal(describeCall("analyze_code", { code: "č" }, { result: { world: { risk: "low" }, analysisStatus: "complete", language: "javascript" } }).bytes, 2);
+});
+
+test("the log keeps the sha256 of the exact bytes the server read, not the code", async () => {
+    const sb = sandbox();
+    const crypto = require("crypto");
+    const sha = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
+    const raw = Buffer.from(`\ufeffeval(x);\r\n// ${MARKER} ž\r\n`, "utf8");
+    fs.writeFileSync(path.join(sb.project, "crlf.js"), raw);
+    const { client } = await connect([`--audit-log=${sb.logs}`, "--exclude=secrets", "--max-file-bytes=1024", sb.project]);
+    let first, changed, dirText;
+    try {
+        first = await call(client, "analyze_file", { path: "crlf.js" });
+        fs.writeFileSync(path.join(sb.project, "crlf.js"), Buffer.concat([raw, Buffer.from(" ")]));
+        changed = await call(client, "analyze_file", { path: "crlf.js" });
+        dirText = (await call(client, "analyze_directory", { path: "." })).text;
+        await call(client, "analyze_file", { path: "secrets/key.js" });
+        await call(client, "analyze_code", { code: "eval(1)" });
+    } finally {
+        await client.close();
+    }
+    try {
+        assert.ok(!first.text.includes("sha256") && !dirText.includes("sha256"), "tool answers are unchanged");
+        const [, a, b, dir, dirHashes, refused, code] = (await waitForLines(sb.logs, 7)).map((l) => JSON.parse(l));
+        assert.equal(dir.hashed, 3);
+        assert.match(dir.call, /^[0-9a-f]{12}$/);
+        assert.deepEqual([dirHashes.event, dirHashes.call, dirHashes.part, dirHashes.parts], ["hashes", dir.call, 1, 1]);
+        dir.files = dirHashes.files;
+        assert.equal(a.sha256, sha(raw));
+        assert.equal(b.sha256, sha(Buffer.concat([raw, Buffer.from(" ")])));
+        assert.deepEqual(dir.files.map((f) => f.path).sort(), ["app.js", "crlf.js", "danger.js"]);
+        for (const f of dir.files) assert.equal(f.sha256, sha(fs.readFileSync(path.join(sb.project, f.path))));
+        assert.ok(!JSON.stringify(dir).includes("secrets") && !JSON.stringify(dir).includes("big.js"), "excluded and unread files have no hash");
+        assert.equal(refused.sha256, undefined);
+        assert.equal(code.sha256, undefined, "pasted code gets no hash: a short snippet could be guessed from it");
+        const view = (await cli(sb, "log", ["--dir", sb.logs])).stdout;
+        assert.match(view, new RegExp(`file crlf\\.js: critical sha256 ${a.sha256.slice(0, 12)}\\n`));
+        assert.match(view, new RegExp(`critical danger\\.js sha256 [0-9a-f]{12}\\n`));
+    } finally {
+        sb.cleanup();
+    }
+});
+
+test("log shows a hash only when it is 64 hex digits", async () => {
+    const sb = sandbox();
+    try {
+        fs.mkdirSync(sb.logs);
+        const ts = new Date(2026, 9, 17, 10, 0, 0).toISOString();
+        const rows = [
+            { ts, tool: "analyze_file", ok: true, path: "a.js", risk: "low", sha256: "a".repeat(64) },
+            { ts, tool: "analyze_file", ok: true, path: "b.js", risk: "low", sha256: `${"b".repeat(60)}\n${ESC}[2J` },
+            { ts, tool: "analyze_file", ok: true, path: "c.js", risk: "low", sha256: { x: 1 } },
+            { ts, tool: "analyze_directory", ok: true, path: ".", analyzed: 1, top: [null, { path: "d.js", risk: "high", sha256: "Z".repeat(64) }] }
+        ];
+        fs.writeFileSync(path.join(sb.logs, dayName(new Date(2026, 9, 17))), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+        const view = (await cli(sb, "log", ["--dir", sb.logs])).stdout;
+        assert.match(view, /file a\.js: low sha256 aaaaaaaaaaaa\n/);
+        assert.match(view, /file b\.js: low\n/);
+        assert.match(view, /file c\.js: low\n/);
+        assert.match(view, / {4}high {5}d\.js\n/);
+        assert.ok(!view.includes(ESC));
+        assert.ok(!view.includes("hashes"), "hash lines are only for --json");
+    } finally {
+        sb.cleanup();
+    }
+});
+
+test("a folder's hashes are split into short lines linked to the call", () => {
+    const { splitHashes, HASHES_PER_LINE } = require("../src/auditLog");
+    const files = Array.from({ length: 500 }, (_, i) => ({ path: `${"d/".repeat(140)}f${i}.js`, risk: "low", sha256: "0".repeat(64) }));
+    const [main, ...more] = splitHashes({ tool: "analyze_directory", ok: true, files });
+    assert.equal(main.files, undefined);
+    assert.equal(main.hashed, 500);
+    assert.equal(more.length, Math.ceil(500 / HASHES_PER_LINE));
+    assert.ok(more.every((m) => m.call === main.call && m.parts === more.length));
+    assert.deepEqual(more.flatMap((m) => m.files), files);
+    assert.ok(more.every((m) => Buffer.byteLength(JSON.stringify(m)) < 20000));
+    assert.deepEqual(splitHashes({ tool: "analyze_file", ok: true }), [{ tool: "analyze_file", ok: true }]);
 });

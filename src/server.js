@@ -6,7 +6,7 @@ const { version } = require("../package.json");
 const { AccessError, canonicalRoots, rootsFromUris } = require("./paths");
 const { analyzeCode, analyzeFile, analyzeDirectory } = require("./analyze");
 const { createExcluder } = require("./exclude");
-const { createAuditLog, describeCall } = require("./auditLog");
+const { createAuditLog, describeCall, splitHashes } = require("./auditLog");
 
 const DEFAULT_LIMITS = Object.freeze({
     maxFileBytes: 1024 * 1024,
@@ -110,7 +110,9 @@ function createServer(options = {}) {
             try {
                 const info = server.server.getClientVersion();
                 const client = info && typeof info.name === "string" ? info.name.slice(0, 100) : undefined;
-                auditLog.record({ client, ...describeCall(tool, args, outcome), ms });
+                const [main, ...hashLines] = splitHashes({ client, ...describeCall(tool, args, outcome), ms });
+                auditLog.record(main);
+                for (const line of hashLines) auditLog.record(line);
             } catch { /* logging must never break a tool call */ }
         };
     }
@@ -153,7 +155,10 @@ function createServer(options = {}) {
             path: z.string().min(1).describe("File path, absolute or relative to the first allowed folder")
         },
         annotations: { title: "Analyze a JavaScript, TypeScript or Python file", ...READ_ONLY }
-    }, async ({ path }) => guarded(async () => analyzeFile(path, await allowedRoots(), { ...limits, excluder }), auditor("analyze_file", { path })));
+    }, async ({ path }) => {
+        const hashes = auditLog.active ? new Map() : null;
+        return guarded(async () => analyzeFile(path, await allowedRoots(), { ...limits, excluder, hashes }), auditor("analyze_file", { path, hashes }));
+    });
 
     server.registerTool("analyze_directory", {
         title: "Analyze a folder of JavaScript, TypeScript and Python files",
@@ -182,15 +187,18 @@ function createServer(options = {}) {
                 .describe("\"summary\" (default): short entries; \"full\": all facts per file, much larger")
         },
         annotations: { title: "Analyze a folder of JavaScript, TypeScript and Python files", ...READ_ONLY }
-    }, async ({ path, max_files, recursive, detail }) => guarded(async () =>
-        analyzeDirectory(path ?? ".", await allowedRoots(), {
+    }, async ({ path, max_files, recursive, detail }) => {
+        const hashes = auditLog.active ? new Map() : null;
+        return guarded(async () => analyzeDirectory(path ?? ".", await allowedRoots(), {
             maxFiles: max_files ?? limits.maxFiles,
             maxFileBytes: limits.maxFileBytes,
             timeBudgetMs: limits.timeBudgetMs,
             recursive: recursive ?? true,
             detail: detail ?? "summary",
-            excluder
-        }), auditor("analyze_directory", { path, max_files, recursive, detail })));
+            excluder,
+            hashes
+        }), auditor("analyze_directory", { path, max_files, recursive, detail, hashes }));
+    });
 
     server.auditLog = auditLog;
     return server;

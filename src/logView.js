@@ -38,6 +38,10 @@ function riskCounts(counts) {
     return parts.length ? ` (${parts.join(", ")})` : "";
 }
 
+const SHA256 = /^[0-9a-f]{64}$/;
+// The first 12 hex digits are enough to compare by eye; --json has all 64.
+function shortHash(h) { return typeof h === "string" && SHA256.test(h) ? ` sha256 ${h.slice(0, 12)}` : ""; }
+
 function describe(e) {
     if (e.event === "start") {
         const folders = Array.isArray(e.folders) && e.folders.length ? ` for ${e.folders.map(safe).join(", ")}` : "";
@@ -45,6 +49,7 @@ function describe(e) {
     }
     if (e.event === "check") return [`doctor checked that the log can be written`];
     if (e.event === "full") return [`the log for this day reached its size limit; nothing more is written today`];
+    if (typeof e.event === "string") return [`${safe(e.event).slice(0, 40)} (see log --json)`];
     const what = TOOL_WORDS[e.tool] ? TOOL_WORDS[e.tool] : safe(e.tool);
     const target = e.tool === "analyze_code" ? `${what} (${Number(e.bytes) || 0} bytes${e.language ? `, ${safe(e.language)}` : ""})` : `${what} ${safe(e.path)}`;
     if (e.ok === false) {
@@ -57,15 +62,17 @@ function describe(e) {
         if (Number(e.notRead) > 0) extra.push(`${Number(e.notRead)} not read (too large or unreadable)`);
         if (e.truncated) extra.push("stopped at the file limit");
         if (e.timedOut) extra.push("stopped at the time limit");
+        if (Number(e.hashed) > 0) extra.push(`sha256 of ${Number(e.hashed)} file(s) in log --json`);
         const lines = [`${target}: ${Number(e.analyzed) || 0} file(s)${riskCounts(e.riskCounts)}${extra.length ? `, ${extra.join(", ")}` : ""}`];
-        if (Array.isArray(e.top)) for (const f of e.top) lines.push(`    ${safe(f.risk).padEnd(8)} ${safe(f.path)}`);
+        if (Array.isArray(e.top)) for (const f of e.top) if (f) lines.push(`    ${safe(f.risk).padEnd(8)} ${safe(f.path)}${shortHash(f.sha256)}`);
         return lines;
     }
     const incomplete = e.analysisStatus && e.analysisStatus !== "complete" ? " (incomplete: broken code)" : "";
-    return [`${target}: ${safe(e.risk)}${incomplete}`];
+    return [`${target}: ${safe(e.risk)}${incomplete}${shortHash(e.sha256)}`];
 }
 
-function parseFile(file) {
+// Hash lines of a folder call are data for --json, not entries to read.
+function parseFile(file, { hashLines = true } = {}) {
     const entries = [];
     let damaged = 0;
     let text;
@@ -77,7 +84,9 @@ function parseFile(file) {
         if (line === "") continue;
         try {
             const e = JSON.parse(line);
-            if (e && typeof e === "object" && !Array.isArray(e) && (typeof e.tool === "string" || typeof e.event === "string")) entries.push(e);
+            if (e && typeof e === "object" && !Array.isArray(e) && (typeof e.tool === "string" || typeof e.event === "string")) {
+                if (hashLines || e.event !== "hashes") entries.push(e);
+            }
             else damaged++;
         } catch { damaged++; }
     }
@@ -113,7 +122,7 @@ function runLog(opts, io) {
     if (opts.json) io.stdout.write(`{\n  "folder": ${JSON.stringify(dir)},\n  "entries": [`);
     if (opts.all) {
         for (const file of files) {
-            const r = parseFile(file);
+            const r = parseFile(file, { hashLines: Boolean(opts.json) });
             damaged += r.damaged;
             for (const e of r.entries) emit(e);
             count += r.entries.length;
@@ -121,7 +130,7 @@ function runLog(opts, io) {
     } else {
         let recent = [];
         for (let i = files.length - 1; i >= 0 && recent.length < RECENT; i--) {
-            const r = parseFile(files[i]);
+            const r = parseFile(files[i], { hashLines: Boolean(opts.json) });
             damaged += r.damaged;
             recent = r.entries.concat(recent);
             if (recent.length >= RECENT && i > 0) more = true;

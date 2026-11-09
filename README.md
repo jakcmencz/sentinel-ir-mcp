@@ -25,6 +25,10 @@ of safety. Other languages are not supported yet. What is detected in Python
 (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.4.5** adds to that log the SHA-256 of every file the server read, so you
+can check later which version of a file the agent was shown (see
+[Audit log](#audit-log)).
+
 **0.4.4** can keep a log of what the agent asked for (off unless you turn it on):
 
 - **One question in `setup`:** *"Keep a log of what the agent asks for (file
@@ -358,6 +362,16 @@ server through `cmd`). Then read it with `log --dir <folder>`.
   result (risk, `analysisStatus`, file counts, up to 20 `critical`/`high` file
   paths of a folder) or why it was refused (`excluded`, `outside`,
   `not-found`, `too-large`), and the duration. A line when the server starts.
+- **Which version of a file (0.4.5):** for every file the server read, the
+  SHA-256 of the exact bytes it analyzed: `sha256` for `analyze_file`; for
+  `analyze_directory` the folder line gets a `call` id and `hashed` count,
+  and the hashes follow in `"event": "hashes"` lines (40 files each, same
+  `call` id), so no line gets long. `log` shows the first 12 digits for
+  files and the risky files of a folder; `log --json` has all of them. To check whether a file is still the
+  one the agent saw, compare with `certutil -hashfile <file> SHA256`
+  (Windows), `shasum -a 256 <file>` (macOS) or `sha256sum <file>` (Linux).
+  Pasted code (`analyze_code`) gets no hash: a very short snippet could be
+  guessed from it. The tool answers to the agent are unchanged.
 - **What is not written:** source code. For `analyze_code` only the size in
   bytes, the language and the risk. Names of excluded files are not written
   either, only their count. Long values are cut to 300 characters.
