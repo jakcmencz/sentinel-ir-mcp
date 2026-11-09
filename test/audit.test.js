@@ -384,7 +384,7 @@ test("setup: --audit-log turns it on, rerunning keeps it, --no-audit-log turns i
         const moved = await cli(sb, "setup", ["--client", "windsurf", `--audit-log=${sb.logs}`, "--exclude", "secrets", "--yes"]);
         assert.equal(moved.code, 0, moved.stderr);
         assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.4", "--exclude=secrets", `--audit-log=${sb.logs}`, sb.project]);
-        assert.match(moved.stdout, new RegExp(`log --dir ${sb.logs.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")}`));
+        assert.match(moved.stdout, new RegExp(`log --dir ['"]?${sb.logs.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")}['"]?\n`));
         assert.deepEqual(entryFolders(argsOf(sb)), [sb.project]);
         const off = await cli(sb, "setup", ["--client", "windsurf", "--no-audit-log", "--yes"]);
         assert.equal(off.code, 0);
