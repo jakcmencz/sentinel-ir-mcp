@@ -1,6 +1,7 @@
 # Windows compatibility on GitHub's Windows runners (the GitHub copy is a
 # mirror of GitLab). Same checks as the GitLab `windows_compat` job, which now
-# runs only on release tags before `publish`.
+# runs only on release tags before `publish`. Defender real-time scanning is
+# already off on GitHub's Windows images, so no exclusions are needed here.
 name: windows
 
 on:
@@ -32,10 +33,6 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-      - name: Defender exclusions
-        run: |
-          $paths = $env:GITHUB_WORKSPACE, $env:TEMP, (npm config get cache)
-          try { Add-MpPreference -ExclusionPath $paths -ErrorAction Stop; "Defender skips: $($paths -join ', ')" } catch { Write-Host "Defender exclusions not set: $_" }
       - run: npm ci
       - name: quote probe
         if: ${{ !cancelled() }}
