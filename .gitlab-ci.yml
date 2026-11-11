@@ -78,7 +78,7 @@ windows_compat:
   script:
     - $ProgressPreference = "SilentlyContinue"
     - $sw = [Diagnostics.Stopwatch]::StartNew(); $times = [ordered]@{}
-    - 'try { Add-MpPreference -ExclusionPath $env:CI_PROJECT_DIR, $env:TEMP, C:\nodejs-ci -ErrorAction Stop } catch { Write-Host "Defender exclusions not set: $_" }'
+    - 'try { Add-MpPreference -ExclusionPath $env:CI_PROJECT_DIR, $env:TEMP, "$env:LOCALAPPDATA\npm-cache", C:\nodejs-ci -ErrorAction Stop } catch { Write-Host "Defender exclusions not set: $_" }'
     - New-Item -ItemType Directory -Force node-dist | Out-Null
     - $zip = "node-dist\node-v$env:NODE_VERSION-win-x64.zip"
     - if (-not (Test-Path $zip)) { Invoke-WebRequest "https://nodejs.org/dist/v$env:NODE_VERSION/node-v$env:NODE_VERSION-win-x64.zip" -OutFile $zip }

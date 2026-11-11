@@ -42,7 +42,9 @@ function rawSpawn(command, args) {
 async function handshake(command, args, cwd) {
     const client = new Client({ name: "compat-smoke", version: "0" });
     try {
-        await client.connect(new StdioClientTransport({ command, args, cwd, stderr: "pipe" }));
+        // A first `npx -y` downloads the package; on a cold Windows runner that
+        // can pass the SDK's 60 s default for the initialize request.
+        await client.connect(new StdioClientTransport({ command, args, cwd, stderr: "pipe" }), { timeout: 180000 });
         const tools = (await client.listTools()).tools.map((t) => t.name).sort();
         const dir = await client.callTool({ name: "analyze_directory", arguments: {} });
         const s = dir.structuredContent;
