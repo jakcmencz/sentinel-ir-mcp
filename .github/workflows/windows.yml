@@ -1,0 +1,57 @@
+# Windows compatibility on GitHub's Windows runners (the GitHub copy is a
+# mirror of GitLab). Same checks as the GitLab `windows_compat` job, which now
+# runs only on release tags before `publish`.
+name: windows
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows_compat:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["20.20.2", "22.23.4", "24.22.1"]
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      npm_config_audit: "false"
+      npm_config_fund: "false"
+    steps:
+      - name: Defender exclusions
+        run: |
+          try { Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:TEMP, "$env:LOCALAPPDATA\npm-cache" -ErrorAction Stop } catch { Write-Host "Defender exclusions not set: $_" }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: quote probe
+        if: ${{ !cancelled() }}
+        run: node scripts/win-quote-probe.js
+      - name: compat smoke
+        if: ${{ !cancelled() }}
+        run: node scripts/compat-smoke.js
+      - name: tests
+        if: ${{ !cancelled() }}
+        run: node --test --test-concurrency=4 (Get-ChildItem test\*.test.js | ForEach-Object FullName)
+      - name: size probe (informational)
+        if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && startsWith(matrix.node, '24.') }}
+        continue-on-error: true
+        run: node scripts/size-probe.js
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: compat-node${{ matrix.node }}
+          path: compat-*.json
+          if-no-files-found: ignore
