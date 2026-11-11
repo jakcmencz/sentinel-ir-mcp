@@ -38,23 +38,57 @@ publish:
 
 # Real Windows: the packed package, setup/doctor against the real %APPDATA%
 # and home folder, and how `npx -y sentinel-ir-mcp@0.2` starts. No client apps.
+# Runs on main, tags and branches that change code; README-only changes skip it.
+# Node and the npm cache are kept in the GitLab cache, Defender skips the build
+# and temp folders, and the informational size probe runs on Node 24 only.
 windows_compat:
   stage: test
   tags: [saas-windows-medium-amd64]
   parallel:
     matrix:
       - NODE_VERSION: ["20.20.2", "22.23.4", "24.22.1"]
+  rules:
+    - if: '$CI_COMMIT_TAG || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - changes:
+        paths:
+          - src/**/*
+          - bin/**/*
+          - test/**/*
+          - scripts/**/*
+          - package.json
+          - package-lock.json
+          - server.json
+          - .gitlab-ci.yml
+        compare_to: refs/heads/main
+  variables:
+    npm_config_cache: $CI_PROJECT_DIR\.npm
+    npm_config_prefer_offline: "true"
+    npm_config_audit: "false"
+    npm_config_fund: "false"
+  cache:
+    - key: node-win-$NODE_VERSION
+      paths:
+        - node-dist/
+    - key:
+        files:
+          - package-lock.json
+        prefix: npm-win
+      paths:
+        - .npm/
   script:
     - $ProgressPreference = "SilentlyContinue"
-    - Invoke-WebRequest "https://nodejs.org/dist/v$env:NODE_VERSION/node-v$env:NODE_VERSION-win-x64.zip" -OutFile node.zip
-    - Expand-Archive node.zip -DestinationPath C:\nodejs-ci
+    - 'try { Add-MpPreference -ExclusionPath $env:CI_PROJECT_DIR, $env:TEMP, C:\nodejs-ci -ErrorAction Stop } catch { Write-Host "Defender exclusions not set: $_" }'
+    - New-Item -ItemType Directory -Force node-dist | Out-Null
+    - $zip = "node-dist\node-v$env:NODE_VERSION-win-x64.zip"
+    - if (-not (Test-Path $zip)) { Invoke-WebRequest "https://nodejs.org/dist/v$env:NODE_VERSION/node-v$env:NODE_VERSION-win-x64.zip" -OutFile $zip }
+    - Expand-Archive $zip -DestinationPath C:\nodejs-ci
     - $env:Path = "C:\nodejs-ci\node-v$env:NODE_VERSION-win-x64;" + $env:Path
     - node -v
     - npm ci
     - node scripts/win-quote-probe.js; $quote = $LASTEXITCODE
     - node scripts/compat-smoke.js; $smoke = $LASTEXITCODE
-    - node --test (Get-ChildItem test\*.test.js | ForEach-Object FullName); $tests = $LASTEXITCODE
-    - node scripts/size-probe.js
+    - node --test --test-concurrency=4 (Get-ChildItem test\*.test.js | ForEach-Object FullName); $tests = $LASTEXITCODE
+    - if ($env:NODE_VERSION -like "24.*") { node scripts/size-probe.js }
     - exit ($quote + $smoke + $tests)
   artifacts:
     when: always
