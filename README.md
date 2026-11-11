@@ -509,6 +509,9 @@ suite, the packed package with `setup`/`doctor` against the real `%APPDATA%`,
 starting the published package through `npx`, and the printed VS Code/Claude
 Code commands pasted into PowerShell 5.1, PowerShell 7 and cmd.exe. See
 [COMPATIBILITY.md](COMPATIBILITY.md).
+It runs on `main`, on tags and on branches that change code or CI, and
+prints how long each step took (`TIME ...` lines). The informational
+large-file size probe runs on release tags only.
 
 Release: bump `version` in `package.json` and both `version` fields in
 `server.json` (a test checks they match), push a protected tag `vX.Y.Z`;
