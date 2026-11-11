@@ -40,7 +40,7 @@ publish:
 # and home folder, and how `npx -y sentinel-ir-mcp@0.2` starts. No client apps.
 # Runs on main, tags and branches that change code; README-only changes skip it.
 # Node and the npm cache are kept in the GitLab cache, Defender skips the build
-# and temp folders, and the informational size probe runs on Node 24 only.
+# and temp folders. The informational size probe runs on release tags, Node 24.
 windows_compat:
   stage: test
   tags: [saas-windows-medium-amd64]
@@ -88,7 +88,7 @@ windows_compat:
     - node scripts/win-quote-probe.js; $quote = $LASTEXITCODE
     - node scripts/compat-smoke.js; $smoke = $LASTEXITCODE
     - node --test --test-concurrency=4 (Get-ChildItem test\*.test.js | ForEach-Object FullName); $tests = $LASTEXITCODE
-    - if ($env:NODE_VERSION -like "24.*") { node scripts/size-probe.js }
+    - if ($env:CI_COMMIT_TAG -and $env:NODE_VERSION -like "24.*") { node scripts/size-probe.js }
     - exit ($quote + $smoke + $tests)
   artifacts:
     when: always
