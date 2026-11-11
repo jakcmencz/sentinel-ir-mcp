@@ -77,18 +77,26 @@ windows_compat:
         - .npm/
   script:
     - $ProgressPreference = "SilentlyContinue"
+    - $sw = [Diagnostics.Stopwatch]::StartNew(); $times = [ordered]@{}
     - 'try { Add-MpPreference -ExclusionPath $env:CI_PROJECT_DIR, $env:TEMP, C:\nodejs-ci -ErrorAction Stop } catch { Write-Host "Defender exclusions not set: $_" }'
     - New-Item -ItemType Directory -Force node-dist | Out-Null
     - $zip = "node-dist\node-v$env:NODE_VERSION-win-x64.zip"
     - if (-not (Test-Path $zip)) { Invoke-WebRequest "https://nodejs.org/dist/v$env:NODE_VERSION/node-v$env:NODE_VERSION-win-x64.zip" -OutFile $zip }
     - Expand-Archive $zip -DestinationPath C:\nodejs-ci
+    - $times["node"] = [math]::Round($sw.Elapsed.TotalSeconds, 1); $sw.Restart()
     - $env:Path = "C:\nodejs-ci\node-v$env:NODE_VERSION-win-x64;" + $env:Path
     - node -v
     - npm ci
+    - $times["npm ci"] = [math]::Round($sw.Elapsed.TotalSeconds, 1); $sw.Restart()
     - node scripts/win-quote-probe.js; $quote = $LASTEXITCODE
+    - $times["quote probe"] = [math]::Round($sw.Elapsed.TotalSeconds, 1); $sw.Restart()
     - node scripts/compat-smoke.js; $smoke = $LASTEXITCODE
+    - $times["compat smoke"] = [math]::Round($sw.Elapsed.TotalSeconds, 1); $sw.Restart()
     - node --test --test-concurrency=4 (Get-ChildItem test\*.test.js | ForEach-Object FullName); $tests = $LASTEXITCODE
+    - $times["tests"] = [math]::Round($sw.Elapsed.TotalSeconds, 1); $sw.Restart()
     - if ($env:CI_COMMIT_TAG -and $env:NODE_VERSION -like "24.*") { node scripts/size-probe.js }
+    - $times["size probe"] = [math]::Round($sw.Elapsed.TotalSeconds, 1); $sw.Restart()
+    - '$times.GetEnumerator() | ForEach-Object { "TIME {0}: {1} s" -f $_.Key, $_.Value }'
     - exit ($quote + $smoke + $tests)
   artifacts:
     when: always
