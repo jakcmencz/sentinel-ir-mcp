@@ -375,20 +375,20 @@ test("setup: --audit-log turns it on, rerunning keeps it, --no-audit-log turns i
     try {
         const on = await cli(sb, "setup", ["--client", "windsurf", "--audit-log", "--yes"]);
         assert.equal(on.code, 0, on.stderr);
-        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.4", "--audit-log", sb.project]);
+        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.5", "--audit-log", sb.project]);
         assert.match(on.stdout, /Audit log: on, in .*\.local[\\/]state[\\/]sentinel-ir-mcp[\\/]audit-log/);
-        assert.match(on.stdout, /see it: npx -y sentinel-ir-mcp@0\.4 log\n/);
+        assert.match(on.stdout, /see it: npx -y sentinel-ir-mcp@0\.5 log\n/);
         const keep = await cli(sb, "setup", ["--client", "windsurf", "--yes"]);
         assert.match(keep.stdout, /Already set up/);
-        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.4", "--audit-log", sb.project]);
+        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.5", "--audit-log", sb.project]);
         const moved = await cli(sb, "setup", ["--client", "windsurf", `--audit-log=${sb.logs}`, "--exclude", "secrets", "--yes"]);
         assert.equal(moved.code, 0, moved.stderr);
-        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.4", "--exclude=secrets", `--audit-log=${sb.logs}`, sb.project]);
+        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.5", "--exclude=secrets", `--audit-log=${sb.logs}`, sb.project]);
         assert.match(moved.stdout, new RegExp(`log --dir ['"]?${sb.logs.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")}['"]?\n`));
         assert.deepEqual(entryFolders(argsOf(sb)), [sb.project]);
         const off = await cli(sb, "setup", ["--client", "windsurf", "--no-audit-log", "--yes"]);
         assert.equal(off.code, 0);
-        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.4", "--exclude=secrets", sb.project]);
+        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.5", "--exclude=secrets", sb.project]);
         assert.match(off.stdout, /Audit log: off/);
         const both = await cli(sb, "setup", ["--client", "windsurf", "--audit-log", "--no-audit-log", "--yes"]);
         assert.equal(both.code, 1);
@@ -398,7 +398,7 @@ test("setup: --audit-log turns it on, rerunning keeps it, --no-audit-log turns i
         assert.match(inside.stderr, /inside the project folder/);
         const relative = await cli(sb, "setup", ["--client", "windsurf", "--audit-log=logs", "--yes"]);
         assert.match(relative.stderr, /must be a full path/);
-        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.4", "--exclude=secrets", sb.project], "a refused change writes nothing");
+        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.5", "--exclude=secrets", sb.project], "a refused change writes nothing");
     } finally {
         sb.cleanup();
     }
@@ -410,7 +410,7 @@ test("setup asks one plain question; Enter keeps the current answer", async () =
         const first = await cli(sb, "setup", ["--client", "windsurf"], { answers: ["", "y", "y"] });
         assert.equal(first.code, 0, first.stderr);
         assert.match(first.questions[1], /Keep a log of what the agent asks for \(file names and results, never your code\)\? \[y\/N\]/);
-        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.4", "--audit-log", sb.project]);
+        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.5", "--audit-log", sb.project]);
         const keep = await cli(sb, "setup", ["--client", "windsurf"], { answers: ["", ""] });
         assert.match(keep.questions[1], /now: on; Enter = keep, n = off/);
         assert.match(keep.stdout, /Already set up/);
@@ -419,12 +419,12 @@ test("setup asks one plain question; Enter keeps the current answer", async () =
         assert.match(bad.stderr, /Answer y or n/);
         const off = await cli(sb, "setup", ["--client", "windsurf"], { answers: ["", "N", "y"] });
         assert.equal(off.code, 0);
-        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.4", sb.project]);
+        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.5", sb.project]);
         const fresh = sandbox();
         try {
             const enter = await cli(fresh, "setup", ["--client", "windsurf"], { answers: ["", "", "y"] });
             assert.equal(enter.code, 0);
-            assert.deepEqual(argsOf(fresh), ["-y", "sentinel-ir-mcp@0.4", fresh.project], "Enter on a new setup means no log");
+            assert.deepEqual(argsOf(fresh), ["-y", "sentinel-ir-mcp@0.5", fresh.project], "Enter on a new setup means no log");
         } finally {
             fresh.cleanup();
         }
@@ -436,7 +436,7 @@ test("setup asks one plain question; Enter keeps the current answer", async () =
 test("Windows: the entry runs through cmd /c with the log flag, commands carry it safely", () => {
     const dir = "C:\\Users\\Jan Novák\\Logs";
     assert.deepEqual(serverEntry("C:\\proj", "win32", [], { dir }),
-        { command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.4", `--audit-log=${dir}`, "C:\\proj"] });
+        { command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.5", `--audit-log=${dir}`, "C:\\proj"] });
     assert.deepEqual(entryAuditLog(serverEntry("C:\\proj", "win32", [], { dir }).args), { dir });
     assert.deepEqual(entryAuditLog(["--audit-log=a", "--audit-log"]), { dir: null }, "the last flag wins, like the server");
     const ps = installCommand("claude-code", "C:\\proj", "win32", "powershell", ["secrets"], { dir });
@@ -468,7 +468,7 @@ test("doctor shows the log state and proves the server can write it", async () =
         await cli(sb, "setup", ["--client", "windsurf", `--audit-log=${sb.logs}`, "--yes"]);
         const r = await cli(sb, "doctor", ["--client", "windsurf"]);
         assert.equal(r.code, 0, r.stdout);
-        assert.match(r.stdout, /\[ok\] {3}Audit log: on, in .*logs \(empty so far\); see it: npx -y sentinel-ir-mcp@0\.4 log --dir "/);
+        assert.match(r.stdout, /\[ok\] {3}Audit log: on, in .*logs \(empty so far\); see it: npx -y sentinel-ir-mcp@0\.5 log --dir "/);
         assert.match(r.stdout, /\[ok\] {3}Audit log: can be written \(doctor added one "check" line to /);
         const view = await cli(sb, "log", ["--dir", sb.logs]);
         assert.match(view.stdout, /doctor checked that the log can be written\n\n1 entries\./, "one line, none of the doctor's tool calls");
@@ -492,7 +492,7 @@ test("doctor shows the log state and proves the server can write it", async () =
 
         await cli(sb, "setup", ["--client", "windsurf", "--no-audit-log", "--yes"]);
         const off = await cli(sb, "doctor", ["--client", "windsurf"]);
-        assert.match(off.stdout, /Audit log: off \(turn it on: npx -y sentinel-ir-mcp@0\.4 setup --audit-log\)/);
+        assert.match(off.stdout, /Audit log: off \(turn it on: npx -y sentinel-ir-mcp@0\.5 setup --audit-log\)/);
     } finally {
         sb.cleanup();
     }
@@ -503,7 +503,7 @@ test("log: empty, last 50, --all, --json, damaged lines, bad options", async () 
     try {
         const empty = await cli(sb, "log", ["--dir", sb.logs]);
         assert.equal(empty.code, 0);
-        assert.match(empty.stdout, /No audit log in .*\nTurn it on with: npx -y sentinel-ir-mcp@0\.4 setup --audit-log/);
+        assert.match(empty.stdout, /No audit log in .*\nTurn it on with: npx -y sentinel-ir-mcp@0\.5 setup --audit-log/);
         fs.mkdirSync(sb.logs);
         const rows = Array.from({ length: 70 }, (_, i) => JSON.stringify({ ts: new Date(2026, 9, 17, 10, 0, i).toISOString(), tool: "analyze_file", ok: true, path: `f${i}.js`, risk: "low", analysisStatus: "complete" }));
         rows.splice(10, 0, "{broken", "[1,2]", "null");

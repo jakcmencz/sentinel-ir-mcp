@@ -7,7 +7,8 @@ const { fileURLToPath } = require("url");
 const JS_EXTENSIONS = new Set([".js", ".mjs", ".cjs"]);
 const TS_EXTENSIONS = new Set([".ts", ".mts", ".cts", ".tsx"]);
 const PY_EXTENSIONS = new Set([".py", ".pyi"]);
-const SOURCE_EXTENSIONS = new Set([...JS_EXTENSIONS, ...TS_EXTENSIONS, ...PY_EXTENSIONS]);
+const RS_EXTENSIONS = new Set([".rs"]);
+const SOURCE_EXTENSIONS = new Set([...JS_EXTENSIONS, ...TS_EXTENSIONS, ...PY_EXTENSIONS, ...RS_EXTENSIONS]);
 
 class AccessError extends Error {}
 

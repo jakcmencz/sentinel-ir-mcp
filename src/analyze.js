@@ -87,6 +87,25 @@ function realNative(p) {
 }
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "__pycache__", "venv", "site-packages"]);
+// Cargo marks its build folder with a CACHEDIR.TAG (cache directory tagging
+// spec); a plain folder named "target" in a JS project is still scanned.
+const CACHEDIR_SIGNATURE = "Signature: 8a477f597d28d172789f06886806bc55";
+async function isCargoTarget(dir) {
+    let handle;
+    try {
+        const tag = path.join(dir, "CACHEDIR.TAG");
+        if (!(await fs.lstat(tag)).isFile()) return false;
+        handle = await fs.open(tag, OPEN_FLAGS);
+        const buffer = Buffer.alloc(CACHEDIR_SIGNATURE.length);
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+        return buffer.toString("latin1", 0, bytesRead) === CACHEDIR_SIGNATURE;
+    } catch {
+        return false;
+    } finally {
+        await handle?.close();
+    }
+}
+
 const RISK_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
 
 async function analyzeCode(code, target, language) {
@@ -102,7 +121,7 @@ async function analyzeFile(requested, roots, { maxFileBytes, excluder = NONE, ha
     const stat = await fs.stat(real);
     if (!stat.isFile()) throw new AccessError(`Not a file: ${requested}`);
     if (!isSourceFile(real)) {
-        throw new AccessError(`Unsupported file type: ${requested} (only .js, .mjs, .cjs, .ts, .mts, .cts, .tsx, .py and .pyi)`);
+        throw new AccessError(`Unsupported file type: ${requested} (only .js, .mjs, .cjs, .ts, .mts, .cts, .tsx, .py, .pyi and .rs)`);
     }
     if (stat.size > maxFileBytes) {
         throw new AccessError(`File too large: ${requested} is ${stat.size} bytes, limit is ${maxFileBytes}`);
@@ -112,11 +131,12 @@ async function analyzeFile(requested, roots, { maxFileBytes, excluder = NONE, ha
 }
 
 // Breadth-first, sorted walk. Symlinks are never followed; node_modules, .git,
-// __pycache__, venv, site-packages and hidden folders are skipped. Excluded
+// __pycache__, venv, site-packages, hidden folders and Cargo build folders
+// (target/ with a CACHEDIR.TAG, listed in skipped.cargoTarget) are skipped. Excluded
 // files and folders are only counted: their names can be private too.
 async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive, excluder = NONE }) {
     const files = [];
-    const skipped = { excluded: 0, tooLarge: [], symlinks: 0, unreadable: [], hardlinks: [] };
+    const skipped = { excluded: 0, tooLarge: [], symlinks: 0, unreadable: [], hardlinks: [], cargoTarget: [] };
     // Exclusions match the real names: on Windows dir may be spelled with
     // short names (SRC~1) that the patterns do not know.
     const prefix = excluder.active ? path.relative(realNative(root), realNative(dir)) : "";
@@ -142,7 +162,9 @@ async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive, excl
             } else if (entry.isSymbolicLink()) {
                 skipped.symlinks++;
             } else if (entry.isDirectory()) {
-                if (recursive && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith(".")) queue.push(full);
+                if (!recursive || SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) continue;
+                if (entry.name === "target" && await isCargoTarget(full)) skipped.cargoTarget.push(rel);
+                else queue.push(full);
             } else if (entry.isFile() && isSourceFile(entry.name)) {
                 let size;
                 try {

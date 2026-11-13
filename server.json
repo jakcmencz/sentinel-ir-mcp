@@ -2,19 +2,19 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.jakcmencz/sentinel-ir-mcp",
   "title": "Sentinel-IR",
-  "description": "Compact structural IR of JS/TS/Python files for AI agents: risk and signals instead of raw source.",
+  "description": "Structural IR of JS/TS/Python/Rust files for AI agents: risk and signals instead of raw source.",
   "repository": {
     "url": "https://github.com/jakcmencz/sentinel-ir-mcp",
     "source": "github"
   },
   "websiteUrl": "https://gitlab.com/jakubrojicek11/sentinel-ir-mcp",
-  "version": "0.4.6",
+  "version": "0.5.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "sentinel-ir-mcp",
-      "version": "0.4.6",
+      "version": "0.5.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

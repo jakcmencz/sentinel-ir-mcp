@@ -39,10 +39,10 @@ const RISK_NOTE =
     "is unknown: e.g. readFileSync(req.query.f) is low. Start with critical files, and report a problem only after reading the code.";
 
 const INSTRUCTIONS =
-    "sentinel-ir-mcp turns JavaScript, TypeScript and Python source into a compact structural IR (risk level, dangerous " +
+    "sentinel-ir-mcp turns JavaScript, TypeScript, Python and Rust source into a compact structural IR (risk level, dangerous " +
     "capabilities, routes, exports, imports, env reads, network/filesystem/process/crypto calls). " +
     "Prefer analyze_file or analyze_directory over reading raw source when you only need structure " +
-    "or risk, then read the raw source of the files that matter. Supported: JavaScript (.js, .mjs, .cjs), TypeScript (.ts, .mts, .cts, .tsx) and Python (.py, .pyi); the language is picked from the file extension. " +
+    "or risk, then read the raw source of the files that matter. Supported: JavaScript (.js, .mjs, .cjs), TypeScript (.ts, .mts, .cts, .tsx), Python (.py, .pyi) and Rust (.rs); the language is picked from the file extension. " +
     "Rely on analysisStatus, world.risk, forbidden and facts; analysisStatus \"incomplete\" means the file did not parse cleanly. " +
     "analyze_directory lists such files separately in 'incomplete'; their low risk is not evidence of safety. " +
     "Suggested order: analyze_directory first, check 'incomplete', 'skipped.unreadable' and 'notAnalyzed' (set when the time budget ran out), pick the relevant files, " +
@@ -131,45 +131,45 @@ function createServer(options = {}) {
     }
 
     server.registerTool("analyze_code", {
-        title: "Analyze JavaScript, TypeScript or Python source",
+        title: "Analyze JavaScript, TypeScript, Python or Rust source",
         description:
-            "Analyze JavaScript, TypeScript or Python source text and return its compact structural IR: " +
+            "Analyze JavaScript, TypeScript, Python or Rust source text and return its compact structural IR: " +
             "{analysisStatus, language, mission, world.risk, constraints, forbidden, summary, facts}. " +
             "Use analyze_file instead when the code is on disk, so the source does not have to pass " +
             "through the conversation. " + UNTRUSTED_NOTE,
         inputSchema: {
-            code: z.string().max(limits.maxFileBytes).describe("JavaScript, TypeScript or Python source"),
-            target: z.string().max(1024).optional().describe("Optional file name shown as mission.target; its extension (.ts, .tsx, .py, ...) selects the language"),
-            language: z.enum(["javascript", "typescript", "tsx", "python"]).optional().describe("Overrides the language picked from target (default javascript)")
+            code: z.string().max(limits.maxFileBytes).describe("JavaScript, TypeScript, Python or Rust source"),
+            target: z.string().max(1024).optional().describe("Optional file name shown as mission.target; its extension (.ts, .tsx, .py, .rs, ...) selects the language"),
+            language: z.enum(["javascript", "typescript", "tsx", "python", "rust"]).optional().describe("Overrides the language picked from target (default javascript)")
         },
-        annotations: { title: "Analyze JavaScript, TypeScript or Python source", ...READ_ONLY }
+        annotations: { title: "Analyze JavaScript, TypeScript, Python or Rust source", ...READ_ONLY }
     }, ({ code, target, language }) => guarded(() => analyzeCode(code, target, language), auditor("analyze_code", { code, target, language })));
 
     server.registerTool("analyze_file", {
-        title: "Analyze a JavaScript, TypeScript or Python file",
+        title: "Analyze a JavaScript, TypeScript, Python or Rust file",
         description:
-            "Read one .js/.mjs/.cjs/.ts/.mts/.cts/.tsx/.py/.pyi file inside the allowed folders and return its compact structural IR. " +
+            "Read one .js/.mjs/.cjs/.ts/.mts/.cts/.tsx/.py/.pyi/.rs file inside the allowed folders and return its compact structural IR. " +
             `Relative paths are resolved against the first allowed folder. Files over ${limits.maxFileBytes} bytes are refused. ` +
             UNTRUSTED_NOTE + excludeNote,
         inputSchema: {
             path: z.string().min(1).describe("File path, absolute or relative to the first allowed folder")
         },
-        annotations: { title: "Analyze a JavaScript, TypeScript or Python file", ...READ_ONLY }
+        annotations: { title: "Analyze a JavaScript, TypeScript, Python or Rust file", ...READ_ONLY }
     }, async ({ path }) => {
         const hashes = auditLog.active ? new Map() : null;
         return guarded(async () => analyzeFile(path, await allowedRoots(), { ...limits, excluder, hashes }), auditor("analyze_file", { path, hashes }));
     });
 
     server.registerTool("analyze_directory", {
-        title: "Analyze a folder of JavaScript, TypeScript and Python files",
+        title: "Analyze a folder of JavaScript, TypeScript, Python and Rust files",
         description:
-            "Scan a folder inside the allowed folders and return one short entry per JavaScript, TypeScript or Python file, " +
+            "Scan a folder inside the allowed folders and return one short entry per JavaScript, TypeScript, Python or Rust file, " +
             "sorted from highest to lowest risk, plus risk counts. By default (detail \"summary\") each entry is " +
             "{path, risk, analysisStatus, language, lines, operations, riskSignals, moreRiskSignals?, parseError?}: " +
             "riskSignals are up to 3 'kind:code@line' signals (code cut to 120 characters) that set the file's risk level (empty when the risk comes from " +
             "the text fallback of an incomplete file or from a path containing 'crypto'), moreRiskSignals counts the rest. " +
             "detail \"full\" adds forbidden, objective and all facts per file instead (much larger). " + RISK_NOTE + " " +
-            "Skips node_modules, .git, __pycache__, venv, site-packages, hidden folders " +
+            "Skips node_modules, .git, __pycache__, venv, site-packages, hidden folders, Cargo build folders (target/ with a CACHEDIR.TAG, listed in skipped.cargoTarget) " +
             `and symlinks. Analyzes at most max_files files (default ${limits.maxFiles}); 'truncated' tells ` +
             "you when there were more. 'incomplete' lists files whose analysis did not finish (e.g. parse errors); " +
             "their risk is not reliable, check them separately. statusCounts counts complete vs incomplete. " +
@@ -186,7 +186,7 @@ function createServer(options = {}) {
             detail: z.enum(["summary", "full"]).optional()
                 .describe("\"summary\" (default): short entries; \"full\": all facts per file, much larger")
         },
-        annotations: { title: "Analyze a folder of JavaScript, TypeScript and Python files", ...READ_ONLY }
+        annotations: { title: "Analyze a folder of JavaScript, TypeScript, Python and Rust files", ...READ_ONLY }
     }, async ({ path, max_files, recursive, detail }) => {
         const hashes = auditLog.active ? new Map() : null;
         return guarded(async () => analyzeDirectory(path ?? ".", await allowedRoots(), {
