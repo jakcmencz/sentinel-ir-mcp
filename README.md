@@ -3,7 +3,7 @@
 MCP server for [`sentinel-ir`](https://www.npmjs.com/package/sentinel-ir):
 it lets AI agents in Claude Desktop, Cursor, Windsurf or any other
 [Model Context Protocol](https://modelcontextprotocol.io) client read a
-compact **structural IR** of JavaScript, TypeScript and Python files instead of the raw source.
+compact **structural IR** of JavaScript, TypeScript, Python and Rust files instead of the raw source.
 
 - npm: <https://www.npmjs.com/package/sentinel-ir-mcp>
 - GitLab (main repository): <https://gitlab.com/jakubrojicek11/sentinel-ir-mcp>
@@ -18,14 +18,27 @@ hundred characters. The agent can triage a folder first and then read the raw
 source only of the files that matter.
 
 **Supported:** JavaScript (`.js`, `.mjs`, `.cjs`), TypeScript (`.ts`, `.mts`,
-`.cts`, `.tsx`; since 0.2.0) and Python (`.py`, `.pyi`; since 0.3.0). The
+`.cts`, `.tsx`; since 0.2.0), Python (`.py`, `.pyi`; since 0.3.0) and Rust
+(`.rs`; since 0.5.0). The
 language is picked from the file extension; `analyze_code` also takes `target`
-or an explicit `language` (`javascript` | `typescript` | `tsx` | `python`). Every result carries `language` and
+or an explicit `language` (`javascript` | `typescript` | `tsx` | `python` | `rust`). Every result carries `language` and
 `analysisStatus`; a file that does not parse cleanly (including JSX in a `.ts`
 file) is `"incomplete"`, and a low risk on an incomplete result is not evidence
 of safety. Other languages are not supported yet. What is detected in Python
-(and what is not) is listed in the
+and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
+
+**0.5.0** reads Rust (`.rs`) with `sentinel-ir` 0.5.2: `unsafe` and FFI,
+`std::process::Command`, file deletes and writes, HTTP clients and routes
+(`axum`, `actix-web`, ...). A `build.rs` or procedural macro that touches
+files, the network or secret environment variables is at least `high`,
+because it runs on your machine during `cargo build`.
+
+- `analyze_directory` skips Cargo's build folder: a `target` folder with
+  Cargo's `CACHEDIR.TAG` file, listed in `skipped.cargoTarget`. A plain folder
+  named `target` (e.g. in a JS project) is still scanned.
+- `setup` writes `sentinel-ir-mcp@0.5`; `doctor` asks entries pinned to 0.4
+  or older to run `setup` again.
 
 **0.4.6** is listed in the official
 [MCP Registry](https://registry.modelcontextprotocol.io) as
@@ -41,7 +54,7 @@ can check later which version of a file the agent was shown (see
 - **One question in `setup`:** *"Keep a log of what the agent asks for (file
   names and results, never your code)? [y/N]"*. Or `setup --audit-log`;
   `--no-audit-log` turns it off. Running `setup` again keeps the setting.
-- **One command to read it:** `npx -y sentinel-ir-mcp@0.4 log` prints the last
+- **One command to read it:** `npx -y sentinel-ir-mcp@0.5 log` prints the last
   50 entries as plain lines, `--all` everything, `--json` for scripts:
 
   ```text
@@ -170,9 +183,9 @@ nothing to compile (the parser is WebAssembly).
 Run it in your project folder:
 
 ```bash
-npx -y sentinel-ir-mcp@0.4 setup --client cursor     # or windsurf, claude-desktop, vscode, claude-code
-npx -y sentinel-ir-mcp@0.4 doctor --client cursor    # after restarting the client
-npx -y sentinel-ir-mcp@0.4 guide                     # optional: text for AGENTS.md / client rules
+npx -y sentinel-ir-mcp@0.5 setup --client cursor     # or windsurf, claude-desktop, vscode, claude-code
+npx -y sentinel-ir-mcp@0.5 doctor --client cursor    # after restarting the client
+npx -y sentinel-ir-mcp@0.5 guide                     # optional: text for AGENTS.md / client rules
 ```
 
 `setup` (without `--client` it asks which client):
@@ -186,7 +199,7 @@ npx -y sentinel-ir-mcp@0.4 guide                     # optional: text for AGENTS
   touched;
 - gives the agent one folder (`--project`, default: the current folder) and
   refuses your home folder or a whole disk;
-- writes `sentinel-ir-mcp@0.4`, so clients get 0.4.x fixes but no unexpected
+- writes `sentinel-ir-mcp@0.5`, so clients get 0.5.x fixes but no unexpected
   new features;
 - asks which files or folders the agent must not read (`--exclude <name>`,
   repeatable, skips the question; see [Excluding files](#excluding-files));
@@ -201,7 +214,7 @@ npx -y sentinel-ir-mcp@0.4 guide                     # optional: text for AGENTS
 | `vscode`, `claude-code` | nothing; prints the command to run |
 
 On Windows the entry is `"command": "cmd", "args": ["/c", "npx", "-y",
-"sentinel-ir-mcp@0.4", "<folder>"]`: there `npx` is `npx.cmd`, and starting it
+"sentinel-ir-mcp@0.5", "<folder>"]`: there `npx` is `npx.cmd`, and starting it
 without a shell failed with `ENOENT` on a real Windows runner. For VS Code and
 Claude Code, `setup` prints a PowerShell and a Command Prompt version of the
 command. What was measured on which system: [COMPATIBILITY.md](COMPATIBILITY.md).
@@ -281,7 +294,7 @@ Settings → Developer → Edit Config opens `claude_desktop_config.json`
   "mcpServers": {
     "sentinel-ir": {
       "command": "npx",
-      "args": ["-y", "sentinel-ir-mcp@0.4", "/Users/you/projects/my-app"]
+      "args": ["-y", "sentinel-ir-mcp@0.5", "/Users/you/projects/my-app"]
     }
   }
 }
@@ -300,7 +313,7 @@ project entry has to be switched on once in Cursor Settings → Customize → MC
   "mcpServers": {
     "sentinel-ir": {
       "command": "npx",
-      "args": ["-y", "sentinel-ir-mcp@0.4", "${workspaceFolder}"]
+      "args": ["-y", "sentinel-ir-mcp@0.5", "${workspaceFolder}"]
     }
   }
 }
@@ -316,8 +329,8 @@ with your project's absolute path.
 #### Other clients
 
 Any MCP client that starts stdio servers works with
-`command: "npx"`, `args: ["-y", "sentinel-ir-mcp@0.4", "<folder>"]`
-(on Windows: `command: "cmd"`, `args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.4", "<folder>"]`).
+`command: "npx"`, `args: ["-y", "sentinel-ir-mcp@0.5", "<folder>"]`
+(on Windows: `command: "cmd"`, `args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.5", "<folder>"]`).
 Without folder arguments the server uses the client's
 [MCP roots](https://modelcontextprotocol.io/specification/latest/client/roots)
 if the client offers them; if it offers none, only `analyze_code` works.
@@ -325,7 +338,7 @@ if the client offers them; if it offers none, only `analyze_code` works.
 ### Excluding files
 
 ```bash
-npx -y sentinel-ir-mcp@0.4 setup --client cursor --exclude secrets --exclude "*.min.js"
+npx -y sentinel-ir-mcp@0.5 setup --client cursor --exclude secrets --exclude "*.min.js"
 ```
 
 | you write | excludes |
@@ -350,8 +363,8 @@ other tools of its client is told about them, but this server cannot stop it.
 ### Audit log
 
 ```bash
-npx -y sentinel-ir-mcp@0.4 setup --client cursor --audit-log   # or answer "y" in setup
-npx -y sentinel-ir-mcp@0.4 log                                 # what the agent asked for
+npx -y sentinel-ir-mcp@0.5 setup --client cursor --audit-log   # or answer "y" in setup
+npx -y sentinel-ir-mcp@0.5 log                                 # what the agent asked for
 ```
 
 | system | folder |

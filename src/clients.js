@@ -4,7 +4,7 @@ const os = require("os");
 const path = require("path");
 
 const SERVER_NAME = "sentinel-ir";
-const PACKAGE_SPEC = "sentinel-ir-mcp@0.4";
+const PACKAGE_SPEC = "sentinel-ir-mcp@0.5";
 const WORKSPACE_VAR = "${workspaceFolder}";
 
 function homeOf(env) {

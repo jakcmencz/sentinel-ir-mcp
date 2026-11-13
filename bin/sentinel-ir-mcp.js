@@ -12,7 +12,7 @@ const { normalizePattern, ExcludeError, MAX_PATTERNS } = require("../src/exclude
 const { AuditLogError, defaultAuditDir, normalizeAuditDir, assertOutsideProjects } = require("../src/auditLog");
 const { version } = require("../package.json");
 
-const USAGE = `sentinel-ir-mcp ${version} — MCP server for sentinel-ir (JavaScript, TypeScript and Python)
+const USAGE = `sentinel-ir-mcp ${version} — MCP server for sentinel-ir (JavaScript, TypeScript, Python and Rust)
 
 Usage: sentinel-ir-mcp [options] [folder ...]
        sentinel-ir-mcp setup | doctor | guide | log [--help]
