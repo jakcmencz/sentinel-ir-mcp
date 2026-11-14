@@ -6,7 +6,9 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { runCommand } = require("../src/cli");
-const { entryFolders } = require("../src/doctor");
+const http = require("http");
+const { entryFolders, fetchDistTags, installKind } = require("../src/doctor");
+const { version } = require("../package.json");
 
 function sandbox() {
     const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "sentinel-ir-doctor-")));
@@ -25,7 +27,8 @@ async function run(sb, command, argv, extra = {}) {
         stdout: { write: (s) => { stdout += s; } },
         stderr: { write: (s) => { stderr += s; } },
         env: { HOME: sb.home, ...(extra.env || {}) }, platform: extra.platform || "linux", cwd: extra.cwd || sb.project, isTTY: false, prompt: null,
-        now: () => Date.UTC(2026, 9, 18), nodeVersion: extra.nodeVersion
+        now: () => Date.UTC(2026, 9, 18), nodeVersion: extra.nodeVersion,
+        ...(extra.io || {})
     };
     const code = await runCommand(command, argv, io);
     return { code, stdout, stderr };
@@ -287,4 +290,87 @@ test("doctor: an empty or missing npx cache is ok", async () => {
         const { report } = await doctorJson(sb, [], { platform: "win32", env: { LOCALAPPDATA: path.join(sb.base, "Local") } });
         assert.ok(byId(report, "npx.cache")[0].message.includes(path.join(sb.base, "Local", "npm-cache", "_npx")));
     } finally { sb.cleanup(); }
+});
+
+const STABLE = `stable-${version.split(".").slice(0, 2).join(".")}`;
+const newerTags = async () => ({ [STABLE]: `${version.split(".").slice(0, 2).join(".")}.999`, latest: "9.0.0" });
+
+test("doctor warns when npm has a newer stable release and says where this copy runs from", async () => {
+    const sb = sandbox();
+    try {
+        const npxDir = path.join(sb.home, ".npm", "_npx", "abc123def4567890", "node_modules", "sentinel-ir-mcp");
+        const cases = [
+            [npxDir, /the npx cache \(.*abc123def4567890\)/, /npm cache npx rm abc123def4567890\), then run: npx -y sentinel-ir-mcp@stable-/],
+            ["/usr/lib/node_modules/sentinel-ir-mcp", /a global install/, /npm install -g sentinel-ir-mcp@stable-/],
+            ["C:\\Users\\a\\AppData\\Roaming\\npm\\node_modules\\sentinel-ir-mcp", /a global install/, /npm install -g/],
+            [path.join(sb.project, "node_modules", "sentinel-ir-mcp"), /runs from .*project/, /Run the current version: npx -y sentinel-ir-mcp@stable-/]
+        ];
+        for (const [packageDir, where, fix] of cases) {
+            const { code, report } = await doctorJson(sb, [], { io: { fetchDistTags: newerTags, packageDir } });
+            const [c] = byId(report, "package.update");
+            assert.equal(c.status, "warn", packageDir);
+            assert.match(c.message, new RegExp(`This is sentinel-ir-mcp ${version.replace(/\./g, "\\.")}, npm has .*\\.999 \\(${STABLE}\\)`));
+            assert.match(c.message, where, packageDir);
+            assert.match(c.fix, fix, packageDir);
+            assert.equal(code, 0, "a newer release is a warning, not a failure");
+        }
+    } finally { sb.cleanup(); }
+});
+
+test("doctor: current, offline, missing tag and no update check", async () => {
+    const sb = sandbox();
+    try {
+        const status = async (fetch) => byId((await doctorJson(sb, [], { io: fetch ? { fetchDistTags: fetch } : {} })).report, "package.update").map((c) => [c.status, c.message]);
+        assert.deepEqual(await status(async () => ({ [STABLE]: version })), [["ok", `sentinel-ir-mcp ${version} is the newest ${STABLE} on npm`]]);
+        assert.match((await status(async () => null))[0].join(" "), /^skip Could not reach the npm registry/);
+        assert.match((await status(async () => ({ latest: "9.9.9" })))[0].join(" "), /^skip npm has no stable-/);
+        assert.match((await status(async () => ({ [STABLE]: "<script>" })))[0][0], /skip/);
+        assert.deepEqual(await status(null), [], "tests and embedders without fetchDistTags stay offline");
+    } finally { sb.cleanup(); }
+});
+
+test("doctor summary counts warnings", async () => {
+    const sb = sandbox();
+    try {
+        const r = await run(sb, "doctor", [], { io: { fetchDistTags: newerTags, packageDir: "/usr/lib/node_modules/sentinel-ir-mcp" } });
+        assert.equal(r.code, 0);
+        assert.match(r.stdout, /\nAll checks passed, \d+ warnings? above\.\n$/);
+        const ok = await run(sb, "doctor", []);
+        assert.match(ok.stdout, /\nAll checks passed\.\n$/);
+    } finally { sb.cleanup(); }
+});
+
+test("installKind tells npx copies, global installs and other folders apart", () => {
+    assert.equal(installKind("/home/a/.npm/_npx/0123abcd/node_modules/sentinel-ir-mcp").kind, "npx");
+    assert.equal(installKind("/home/a/.npm/_npx/0123abcd/node_modules/sentinel-ir-mcp").key, "0123abcd");
+    assert.equal(installKind("C:\\Users\\a\\AppData\\Local\\npm-cache\\_npx\\0123abcd\\node_modules\\sentinel-ir-mcp").key, "0123abcd");
+    assert.equal(installKind("/usr/local/lib/node_modules/sentinel-ir-mcp").kind, "global");
+    assert.equal(installKind("/data/data/com.termux/files/usr/lib/node_modules/sentinel-ir-mcp").kind, "global");
+    assert.equal(installKind("/home/a/proj/node_modules/sentinel-ir-mcp").kind, "other");
+});
+
+test("fetchDistTags reads the registry from npm_config_registry and gives up on bad answers", async () => {
+    let mode = "ok";
+    const server = http.createServer((req, res) => {
+        if (mode === "slow") return; // never answers
+        if (mode === "500") { res.writeHead(500); return res.end("{}"); }
+        if (mode === "junk") { res.writeHead(200); return res.end("not json"); }
+        if (mode === "huge") { res.writeHead(200); return res.end("[" + "1,".repeat(70000) + "1]"); }
+        assert.equal(req.url, "/npm/-/package/sentinel-ir-mcp/dist-tags");
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ latest: "0.5.3", "stable-0.5": "0.5.3" }));
+    });
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    const env = { npm_config_registry: `http://127.0.0.1:${server.address().port}/npm` };
+    try {
+        assert.deepEqual(await fetchDistTags(env), { latest: "0.5.3", "stable-0.5": "0.5.3" });
+        for (mode of ["500", "junk", "huge"]) assert.equal(await fetchDistTags(env), null, mode);
+        mode = "slow";
+        const t0 = Date.now();
+        assert.equal(await fetchDistTags(env, 300), null);
+        assert.ok(Date.now() - t0 < 2000);
+        assert.equal(await fetchDistTags({ npm_config_registry: "ftp://x/" }), null);
+        assert.equal(await fetchDistTags({ npm_config_registry: "::bad::" }), null);
+        assert.equal(await fetchDistTags({ npm_config_registry: "http://127.0.0.1:1/" }), null);
+    } finally { server.closeAllConnections(); server.close(); }
 });

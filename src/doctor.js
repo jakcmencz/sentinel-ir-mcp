@@ -1,6 +1,8 @@
 "use strict";
 
 const fs = require("fs");
+const http = require("http");
+const https = require("https");
 const path = require("path");
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
@@ -44,10 +46,78 @@ function readVersion(file) {
     }
 }
 
-// The _npx/<key> folder this copy was started from, or null.
-function npxCopyDir() {
-    const m = new RegExp(`^(.*\\${path.sep}_npx\\${path.sep}[^\\${path.sep}]+)\\${path.sep}`).exec(__dirname);
+const PACKAGE_DIR = path.join(__dirname, "..");
+
+// The _npx/<key> folder the package in dir was started from, or null.
+function npxCopyDir(dir = PACKAGE_DIR) {
+    const m = /^(.*[\\/]_npx[\\/][^\\/]+)[\\/]/.exec(dir);
     return m ? m[1] : null;
+}
+
+// Where the package in dir is installed: an npx cache copy, a global install or elsewhere.
+function installKind(dir) {
+    const npx = npxCopyDir(dir);
+    if (npx) return { kind: "npx", dir: npx, key: /[^\\/]+$/.exec(npx)[0] };
+    if (/[\\/](lib|npm)[\\/]node_modules[\\/]sentinel-ir-mcp[\\/]?$/i.test(dir)) return { kind: "global", dir };
+    return { kind: "other", dir };
+}
+
+// npm dist-tags of sentinel-ir-mcp, or null when the registry does not answer in time.
+function fetchDistTags(env, timeoutMs = 3000) {
+    return new Promise((resolve) => {
+        let url;
+        try {
+            url = new URL("-/package/sentinel-ir-mcp/dist-tags", (env.npm_config_registry || "https://registry.npmjs.org/").replace(/\/?$/, "/"));
+        } catch { resolve(null); return; }
+        const lib = url.protocol === "http:" ? http : url.protocol === "https:" ? https : null;
+        if (!lib) { resolve(null); return; }
+        const req = lib.get(url, { timeout: timeoutMs, headers: { accept: "application/json" } }, (res) => {
+            if (res.statusCode !== 200) { res.resume(); resolve(null); return; }
+            let body = "";
+            res.setEncoding("utf8");
+            res.on("data", (d) => { body += d; if (body.length > 65536) req.destroy(); });
+            res.on("end", () => {
+                try {
+                    const tags = JSON.parse(body);
+                    resolve(tags && typeof tags === "object" && !Array.isArray(tags) ? tags : null);
+                } catch { resolve(null); }
+            });
+        });
+        const timer = setTimeout(() => req.destroy(), timeoutMs);
+        req.on("timeout", () => req.destroy());
+        req.on("error", () => resolve(null));
+        req.on("close", () => { clearTimeout(timer); resolve(null); });
+    });
+}
+
+// Warns when npm has a newer release on this version's stable-X.Y tag; says where this copy runs from.
+async function checkUpdate(io, add) {
+    if (typeof io.fetchDistTags !== "function") return;
+    const m = /^(\d+)\.(\d+)\./.exec(version);
+    const tag = m ? `stable-${m[1]}.${m[2]}` : "latest";
+    const tags = await io.fetchDistTags(io.env);
+    if (!tags) {
+        add("skip", "package.update", "Could not reach the npm registry to look for a newer sentinel-ir-mcp (offline or blocked)");
+        return;
+    }
+    const newest = tags[tag];
+    if (typeof newest !== "string" || !/^\d+\.\d+\.\d+$/.test(newest)) {
+        add("skip", "package.update", `npm has no ${tag} tag for sentinel-ir-mcp`);
+        return;
+    }
+    if (!olderThan(version, newest)) {
+        add("ok", "package.update", `sentinel-ir-mcp ${version} is the newest ${tag} on npm`);
+        return;
+    }
+    const spec = `sentinel-ir-mcp@${tag}`;
+    const from = installKind(io.packageDir || PACKAGE_DIR);
+    const where = { npx: `the npx cache (${from.dir})`, global: `a global install (${from.dir})`, other: from.dir }[from.kind];
+    const fix = {
+        npx: `Close the client, delete that folder (npm 11: npm cache npx rm ${from.key}), then run: npx -y ${spec} setup`,
+        global: `Run: npm install -g ${spec} (or npm uninstall -g sentinel-ir-mcp), then: npx -y ${spec} doctor`,
+        other: `Run the current version: npx -y ${spec} doctor`
+    }[from.kind];
+    add("warn", "package.update", `This is sentinel-ir-mcp ${version}, npm has ${newest} (${tag}); this copy runs from ${where}`, fix);
 }
 
 // npm's cache folder: the one this copy was started from by npx, else npm's default.
@@ -279,6 +349,7 @@ async function runDoctor(opts, io) {
         add("fail", "package", `sentinel-ir-mcp ${version} runs sentinel-ir ${ir}, needs ${IR_MIN} or newer`,
             npxCopyDir() ? `Close the client, delete ${npxCopyDir()}, then run: npx -y ${PACKAGE_SPEC} setup` : `Reinstall it so that npm installs sentinel-ir ${dependencies["sentinel-ir"]}.`);
     } else add("ok", "package", `sentinel-ir-mcp ${version}, sentinel-ir ${ir}`);
+    await checkUpdate(io, add);
     checkNpxCache(io.env, io.platform, add);
 
     const project = path.resolve(io.cwd, opts.project || ".");
@@ -323,9 +394,11 @@ async function runDoctor(opts, io) {
         io.stdout.write(JSON.stringify({ ok: !failed, checks }, null, 2) + "\n");
     } else {
         for (const c of checks) io.stdout.write(`${MARK[c.status]} ${c.message}\n${c.fix ? `       -> ${c.fix}\n` : ""}`);
-        io.stdout.write(failed ? "\nSome checks failed.\n" : "\nAll checks passed.\n");
+        const warnings = checks.filter((c) => c.status === "warn").length;
+        const warned = warnings ? `, ${warnings} warning${warnings > 1 ? "s" : ""} above` : "";
+        io.stdout.write(failed ? `\nSome checks failed${warned}.\n` : `\nAll checks passed${warned}.\n`);
     }
     return failed ? 1 : 0;
 }
 
-module.exports = { runDoctor, entryFolders, olderThan, staleNpxCopies, IR_MIN };
+module.exports = { runDoctor, entryFolders, olderThan, staleNpxCopies, fetchDistTags, installKind, IR_MIN };
