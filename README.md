@@ -28,6 +28,14 @@ of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.5.4** makes `doctor` notice an old copy of itself: it asks npm for the
+newest release on its `stable-X.Y` tag (3 s timeout, skipped offline) and,
+when that is newer, warns and says where the old copy runs from (npx cache,
+global install or another folder) and how to replace it. Before, `npx
+sentinel-ir-mcp doctor` without a version could run an old copy and report
+`[ok]`. The last line now counts warnings (`All checks passed, 1 warning
+above.`).
+
 **0.5.3** splits each tool description into short lines (what it returns,
 parameters, risk scale, when to use another tool) and names the sibling tools
 in all three; `analyze_code` no longer repeats the language rule its schema
@@ -257,7 +265,8 @@ without a shell failed with `ENOENT` on a real Windows runner. For VS Code and
 Claude Code, `setup` prints a PowerShell and a Command Prompt version of the
 command. What was measured on which system: [COMPATIBILITY.md](COMPATIBILITY.md).
 
-`doctor` checks Node.js, the package version, the client config (valid JSON, a
+`doctor` checks Node.js, the package version (and asks the npm registry, or
+`npm_config_registry`, whether its `stable-X.Y` tag has a newer release), the client config (valid JSON, a
 `"sentinel-ir"` entry that starts `sentinel-ir-mcp`, existing folders), then
 starts **its own** server with the same folders, performs a real MCP
 handshake, expects exactly the three tools and calls `analyze_directory` with

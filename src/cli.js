@@ -2,7 +2,7 @@
 
 const readline = require("readline");
 const { runSetup } = require("./setup");
-const { runDoctor } = require("./doctor");
+const { runDoctor, fetchDistTags } = require("./doctor");
 const { GUIDE } = require("./guide");
 const { runLog } = require("./logView");
 const { CLIENT_NAMES, PACKAGE_SPEC } = require("./clients");
@@ -103,6 +103,7 @@ function defaultIo() {
         env: process.env,
         platform: process.platform,
         cwd: process.cwd(),
+        fetchDistTags,
         isTTY,
         prompt: isTTY ? (question) => new Promise((resolve) => {
             const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
