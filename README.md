@@ -600,6 +600,17 @@ the tag to GitHub, where `.github/workflows/release.yml` waits for npm, creates
 the GitHub release and publishes the tag's `server.json` to the MCP Registry
 (by hand: `mcp-publisher login github` and `mcp-publisher publish`).
 
+## Sponsor
+
+sentinel-ir-mcp has one maintainer, Jakub ([@jakcmencz](https://github.com/jakcmencz)).
+He decides what it should do, tests it on his own machines and approves every
+release. Most of the code is written by an AI coding agent working from his
+specs, and every change goes through the tests and CI described above.
+Sponsorship pays for that agent time, for CI and Linux, macOS and Windows test
+machines, and for the next language, Go.
+
+[Sponsor on GitHub](https://github.com/sponsors/jakcmencz)
+
 ## Contributing
 
 Development, CI and npm releases run on
