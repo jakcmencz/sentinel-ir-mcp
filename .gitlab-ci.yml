@@ -42,7 +42,8 @@ publish:
     - TAG="$(node -p 'require("./src/clients").STABLE_TAG')"
     - CUR="$(npm view "sentinel-ir-mcp@$TAG" version 2>/dev/null || true)"
     - if [ -z "$CUR" ] || node -e 'process.exit(+!require("./src/doctor").olderThan(process.argv[1], process.argv[2]))' "$CUR" "$V"; then npm dist-tag add "sentinel-ir-mcp@$V" "$TAG"; fi
-    - NOW="$(npm view "sentinel-ir-mcp@$TAG" version)"
+    # The registry shows a new version and tag only after a few minutes.
+    - for i in $(seq 1 30); do NOW="$(npm view "sentinel-ir-mcp@$TAG" version --prefer-online 2>/dev/null || true)"; if [ -n "$NOW" ] && node -e 'process.exit(+require("./src/doctor").olderThan(process.argv[1], process.argv[2]))' "$NOW" "$V"; then break; fi; sleep 20; done
     - echo "$TAG -> $NOW"
     - node -e 'process.exit(+require("./src/doctor").olderThan(process.argv[1], process.argv[2]))' "$NOW" "$V"
 
