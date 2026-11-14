@@ -108,7 +108,7 @@ function openGetOrThrow(url, env, tls, open, onResponse, onFail) {
     const bare = new URL(url.href);
     bare.username = bare.password = "";
     const headers = { accept: "application/json",
-        ...(url.username ? { authorization: "Basic " + Buffer.from(`${unescapeLogin(url.username)}:${unescapeLogin(url.password)}`).toString("base64") } : {}) };
+        ...(url.username || url.password ? { authorization: "Basic " + Buffer.from(`${unescapeLogin(url.username)}:${unescapeLogin(url.password)}`).toString("base64") } : {}) };
     const proxy = proxyFor(url, env);
     if (proxy === false) { onFail(); return; }
     if (!proxy) {
@@ -143,12 +143,12 @@ function openGetOrThrow(url, env, tls, open, onResponse, onFail) {
     open.push(connect);
 }
 
-// npm's strict-ssl and cafile settings as TLS options.
+// npm's strict-ssl and cafile settings as TLS options; null when the cafile is unreadable (npm fails then too).
 function npmTls(env) {
     const t = {};
     if (/^false$/i.test(env.npm_config_strict_ssl || "")) t.rejectUnauthorized = false;
     if (env.npm_config_cafile) {
-        try { t.ca = [...require("tls").rootCertificates, fs.readFileSync(env.npm_config_cafile, "utf8")]; } catch { /* npm fails here too */ }
+        try { t.ca = [...require("tls").rootCertificates, fs.readFileSync(env.npm_config_cafile, "utf8")]; } catch { return null; }
     }
     return t;
 }
@@ -157,6 +157,7 @@ function npmTls(env) {
 // Uses npm_config_registry and the proxy npm would use; follows up to 3 redirects.
 function fetchDistTags(env, timeoutMs = 3000, tls = npmTls(env)) {
     return new Promise((resolve) => {
+        if (tls === null) { resolve(null); return; }
         let open = [];
         let done = false;
         const finish = (v) => {

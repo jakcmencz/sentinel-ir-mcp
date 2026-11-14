@@ -518,6 +518,8 @@ test("fetchDistTags goes through the proxy npm would use", async () => {
         assert.equal(lastAuth, "Basic " + Buffer.from("tok:50%").toString("base64"));
         assert.deepEqual(await fetchDistTags({ npm_config_registry: `http://u:p%zz@127.0.0.1:${rport}/` }), TAGS, "a malformed % in a direct registry login");
         assert.equal(lastAuth, "Basic " + Buffer.from("u:p%zz").toString("base64"));
+        await fetchDistTags({ npm_config_registry: `http://:tok@127.0.0.1:${rport}/` });
+        assert.equal(lastAuth, "Basic " + Buffer.from(":tok").toString("base64"), "password-only login");
         seen.length = 0;
         assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: P, NO_PROXY: "example.com, 127.0.0.1" }), TAGS);
         assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: P, no_proxy: "*" }), TAGS);
@@ -540,7 +542,7 @@ test("fetchDistTags goes through the proxy npm would use", async () => {
             try {
                 assert.deepEqual(await fetchDistTags({ npm_config_registry: treg, npm_config_cafile: cafile }), { ...TAGS, tls: "1" }, "npm cafile");
                 assert.deepEqual(await fetchDistTags({ npm_config_registry: treg, npm_config_strict_ssl: "false" }), { ...TAGS, tls: "1" }, "npm strict-ssl=false");
-                assert.equal(await fetchDistTags({ npm_config_registry: treg, npm_config_cafile: cafile + ".missing" }), null);
+                assert.equal(await fetchDistTags({ npm_config_registry: reg, npm_config_cafile: cafile + ".missing" }), null, "unreadable cafile: npm fails too");
             } finally { fs.rmSync(cafile, { force: true }); }
             assert.equal(await fetchDistTags({ npm_config_registry: `https://deny:${tport}/`, HTTPS_PROXY: P }), null, "CONNECT refused");
             assert.equal(await fetchDistTags({ npm_config_registry: "https://localhost:2/hang/", HTTPS_PROXY: P }, 300, { ca: cert.cert }), null);
