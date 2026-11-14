@@ -134,9 +134,9 @@ function fetchDistTags(env, timeoutMs = 3000, tls = {}) {
         const timer = setTimeout(() => finish(null), timeoutMs);
         const get = (url, hops) => {
             if (url.protocol !== "http:" && url.protocol !== "https:") { finish(null); return; }
-            open = openGet(url, env, tls, (res) => {
+            open.push(...openGet(url, env, tls, (res) => {
                 if (REDIRECTS.has(res.statusCode) && res.headers.location && hops < 3) {
-                    res.resume();
+                    res.destroy();
                     let next;
                     try { next = new URL(res.headers.location, url); } catch { finish(null); return; }
                     if (url.protocol === "https:" && next.protocol !== "https:") { finish(null); return; }
@@ -155,7 +155,7 @@ function fetchDistTags(env, timeoutMs = 3000, tls = {}) {
                 });
                 res.on("error", () => finish(null));
                 res.on("aborted", () => finish(null));
-            }, () => finish(null));
+            }, () => finish(null)));
         };
         let url;
         try {

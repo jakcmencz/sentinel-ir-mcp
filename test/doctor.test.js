@@ -403,8 +403,12 @@ test("fetchDistTags follows up to 3 redirects, never from https to http", async 
         if (req.url === "/abs/-/package/sentinel-ir-mcp/dist-tags") { res.writeHead(307, { location: `http://127.0.0.1:${server.address().port}/npm/-/package/sentinel-ir-mcp/dist-tags` }); return res.end(); }
         if (req.url === "/ftp/-/package/sentinel-ir-mcp/dist-tags") { res.writeHead(302, { location: "ftp://127.0.0.1/" }); return res.end(); }
         if (req.url === "/npm/-/package/sentinel-ir-mcp/dist-tags") { res.writeHead(200); return res.end(JSON.stringify(TAGS)); }
+        if (req.url === "/open/-/package/sentinel-ir-mcp/dist-tags") { res.writeHead(302, { location: "/hang" }); return res.write("x"); }
+        if (req.url === "/hang") return;
         res.writeHead(404); res.end();
     });
+    let live = 0;
+    server.on("connection", (s) => { live++; s.on("close", () => live--); });
     const port = await listen(server);
     try {
         const at = (p) => fetchDistTags({ npm_config_registry: `http://127.0.0.1:${port}/${p}` });
@@ -412,6 +416,9 @@ test("fetchDistTags follows up to 3 redirects, never from https to http", async 
         assert.deepEqual(await at("hop3/"), TAGS, "3 redirects");
         assert.equal(await at("hop4/"), null, "4 redirects");
         assert.equal(await at("ftp/"), null);
+        assert.equal(await fetchDistTags({ npm_config_registry: `http://127.0.0.1:${port}/open/` }, 300), null);
+        await new Promise((r) => setTimeout(r, 100));
+        assert.equal(live, 0, "timeout closes the redirect response and the next request");
         const cert = tlsCert();
         if (cert) {
             const tlsServer = https.createServer(cert, (req, res) => { res.writeHead(302, { location: `http://127.0.0.1:${port}/npm/-/package/sentinel-ir-mcp/dist-tags` }); res.end(); });
