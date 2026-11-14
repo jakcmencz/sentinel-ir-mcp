@@ -79,7 +79,7 @@ const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 
 const unescapeLogin = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
 
-// The proxy npm would use for url (https-proxy, then proxy; npm config before env), null for none,
+// The proxy npm would use for url (npm's https-proxy and proxy settings, then HTTPS_PROXY/HTTP_PROXY), null for none,
 // false for a proxy setting doctor cannot use (it then skips instead of going direct).
 function proxyFor(url, env) {
     const noProxy = env.npm_config_noproxy || env.NO_PROXY || env.no_proxy || "";
@@ -89,8 +89,8 @@ function proxyFor(url, env) {
         const r = bare.replace(/^\*?\.?/, "").replace(/\.$/, "").toLowerCase();
         if (rule === "*" || host === r || host.endsWith("." + r)) return null;
     }
-    // npm uses its https-proxy for http registries too.
-    const raw = env.npm_config_https_proxy || env.HTTPS_PROXY || env.https_proxy || env.npm_config_proxy || env.HTTP_PROXY || env.http_proxy;
+    // npm: its https-proxy, then proxy setting, for http registries too; then the environment.
+    const raw = env.npm_config_https_proxy || env.npm_config_proxy || env.HTTPS_PROXY || env.https_proxy || env.HTTP_PROXY || env.http_proxy;
     if (!raw) return null;
     try {
         const p = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`);

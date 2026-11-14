@@ -402,6 +402,9 @@ test("proxyFor: NO_PROXY with IPv6, ports and trailing dots; unusable proxies ar
     for (const bad of ["socks5://p:1080", "http://[bad"]) assert.equal(via("https://registry.npmjs.org/", { HTTPS_PROXY: bad }), false, bad);
     assert.equal(proxyFor(new URL("https://registry.npmjs.org/"), {}), null);
     assert.equal(proxyFor(new URL("http://registry.internal/"), { HTTPS_PROXY: P }).href, "http://p:3128/", "npm uses https-proxy for http registries too");
+    for (const u of ["http://registry.internal/", "https://registry.npmjs.org/"]) {
+        assert.equal(proxyFor(new URL(u), { npm_config_proxy: P, HTTPS_PROXY: "http://env:1" }).href, "http://p:3128/", `npm's proxy setting before HTTPS_PROXY: ${u}`);
+    }
 });
 
 test("fetchDistTags reads the registry from npm_config_registry and gives up on bad answers", async () => {
