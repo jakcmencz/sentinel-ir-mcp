@@ -105,15 +105,7 @@ async function main() {
     const argv = process.argv.slice(2);
     const { COMMANDS, runCommand } = require("../src/cli");
     if (argv.length && COMMANDS.includes(argv[0])) {
-        const code = await runCommand(argv[0], argv.slice(1));
-        // A DNS lookup the update check gave up on would keep doctor alive for up to 30 s.
-        if (argv[0] === "doctor") {
-            let flushed = 0;
-            const done = () => { if (++flushed === 2) process.exit(code); };
-            process.stdout.write("", done);
-            process.stderr.write("", done);
-        }
-        else process.exitCode = code;
+        process.exitCode = await runCommand(argv[0], argv.slice(1));
         return;
     }
     const server = createServer(parseArgs(process.argv.slice(2)));

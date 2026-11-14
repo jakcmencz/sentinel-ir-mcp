@@ -56,10 +56,29 @@ function npxCopyDir(dir = PACKAGE_DIR) {
 }
 
 // Where npm installs a global sentinel-ir-mcp: under npm's prefix setting, %APPDATA%\\npm, or next to node.
+// The prefix line of an npmrc file (npm's ${VAR} and ~/ expanded), or null.
+function npmrcPrefix(file, env, home) {
+    let text;
+    try { text = fs.readFileSync(file, "utf8"); } catch { return null; }
+    const m = /^[ \t]*prefix[ \t]*=[ \t]*(.*?)[ \t]*$/m.exec(text);
+    if (!m || !m[1]) return null;
+    let v = m[1].replace(/^(["'])(.*)\1$/, "$2").replace(/\$\{([^}]+)\}/g, (_, k) => env[k] || "");
+    if (/^~[\\/]/.test(v) && home) v = path.join(home, v.slice(2));
+    return v;
+}
+
 function globalDirs(env, platform, execPath) {
     const p = platform === "win32" ? path.win32 : path.posix;
-    const prefixes = [env.npm_config_prefix, platform === "win32" && env.APPDATA ? p.join(env.APPDATA, "npm") : null,
-        platform === "win32" ? p.dirname(execPath) : p.dirname(p.dirname(execPath))];
+    const nodePrefix = platform === "win32" ? p.dirname(execPath) : p.dirname(p.dirname(execPath));
+    const home = env.HOME || env.USERPROFILE;
+    // npm's prefix: environment, then user, global and builtin npmrc (Homebrew sets it there), then the default
+    const builtinPrefix = npmrcPrefix(p.join(nodePrefix, ...(platform === "win32" ? [] : ["lib"]), "node_modules", "npm", "npmrc"), env, home);
+    const prefixes = [env.npm_config_prefix,
+        npmrcPrefix(env.npm_config_userconfig || (home ? p.join(home, ".npmrc") : ""), env, home),
+        npmrcPrefix(env.npm_config_globalconfig || p.join(builtinPrefix || nodePrefix, "etc", "npmrc"), env, home),
+        builtinPrefix,
+        platform === "win32" && env.APPDATA ? p.join(env.APPDATA, "npm") : null,
+        nodePrefix];
     const dirs = prefixes.filter(Boolean).map((x) => p.join(x, ...(platform === "win32" ? [] : ["lib"]), "node_modules", "sentinel-ir-mcp"));
     return [...new Set(dirs)];
 }
@@ -198,6 +217,38 @@ function fetchDistTags(env, timeoutMs = 3000, tls = npmTls(env)) {
             url = new URL("-/package/sentinel-ir-mcp/dist-tags", (env.npm_config_registry || "https://registry.npmjs.org/").replace(/\/?$/, "/"));
         } catch { finish(null); return; }
         get(url, 0);
+    });
+}
+
+// fetchDistTags in a child process that is killed on timeout: a DNS lookup that never answers
+// cannot be cancelled and would keep doctor's own process alive for up to 30 s.
+function fetchDistTagsIsolated(env, timeoutMs = 3000) {
+    return new Promise((resolve) => {
+        let out = "";
+        let child;
+        let done = false;
+        const finish = (v) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            if (child) child.kill();
+            resolve(v);
+        };
+        const timer = setTimeout(() => finish(null), timeoutMs + 1000);
+        try {
+            child = require("child_process").spawn(process.execPath,
+                ["-e", `require(process.argv[1]).fetchDistTags(process.env, ${Number(timeoutMs)}).then((t) => process.stdout.write(JSON.stringify(t) + "\\n"))`, __filename],
+                { env, stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+        } catch { finish(null); return; }
+        child.on("error", () => finish(null));
+        child.on("close", () => finish(null));
+        child.stdout.on("data", (d) => {
+            out += d;
+            if (!out.includes("\n")) return;
+            let tags = null;
+            try { tags = JSON.parse(out); } catch { /* unusable */ }
+            finish(tags && typeof tags === "object" && !Array.isArray(tags) ? tags : null);
+        });
     });
 }
 
@@ -537,4 +588,4 @@ async function runDoctor(opts, io) {
     return failed ? 1 : 0;
 }
 
-module.exports = { runDoctor, entryFolders, olderThan, staleNpxCopies, fetchDistTags, proxyFor, installKind, globalDirs, IR_MIN };
+module.exports = { runDoctor, entryFolders, olderThan, staleNpxCopies, fetchDistTags, fetchDistTagsIsolated, proxyFor, installKind, globalDirs, IR_MIN };
