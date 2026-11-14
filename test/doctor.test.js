@@ -395,7 +395,7 @@ test("doctor finds an old global install that bare npx starts, also under a Wind
     } finally { sb.cleanup(); }
 });
 
-test("globalDirs reads npm's prefix from the user, global and builtin npmrc (Homebrew)", () => {
+test("globalDirs reads npm's prefix from the user, global and builtin npmrc (Homebrew)", { skip: process.platform === "win32" && "posix npm layout" }, () => {
     const sb = sandbox();
     try {
         const cellar = path.join(sb.base, "Cellar", "node", "24");
