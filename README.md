@@ -28,6 +28,13 @@ of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.5.5** fixes the update check in `doctor`: it goes through the proxy npm
+would use (`npm_config_https_proxy`/`npm_config_proxy`, `HTTPS_PROXY`/`HTTP_PROXY`,
+`NO_PROXY`), follows up to 3 registry redirects (never from https to http), and
+says what it found: "newer than npm's stable-0.5 (0.5.3)" when this copy is
+ahead of npm, and "points to ..., not a release version" for a pre-release
+or broken tag instead of "npm has no tag".
+
 **0.5.4** makes `doctor` notice an old copy of itself: it asks npm for the
 newest release on its `stable-X.Y` tag (3 s timeout, skipped offline) and,
 when that is newer, warns and says where the old copy runs from (npx cache,
@@ -266,7 +273,7 @@ Claude Code, `setup` prints a PowerShell and a Command Prompt version of the
 command. What was measured on which system: [COMPATIBILITY.md](COMPATIBILITY.md).
 
 `doctor` checks Node.js, the package version (and asks the npm registry, or
-`npm_config_registry`, whether its `stable-X.Y` tag has a newer release), the client config (valid JSON, a
+`npm_config_registry`, through npm's proxy settings, whether its `stable-X.Y` tag has a newer release), the client config (valid JSON, a
 `"sentinel-ir"` entry that starts `sentinel-ir-mcp`, existing folders), then
 starts **its own** server with the same folders, performs a real MCP
 handshake, expects exactly the three tools and calls `analyze_directory` with

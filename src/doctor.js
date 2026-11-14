@@ -3,6 +3,7 @@
 const fs = require("fs");
 const http = require("http");
 const https = require("https");
+const net = require("net");
 const path = require("path");
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
@@ -54,39 +55,204 @@ function npxCopyDir(dir = PACKAGE_DIR) {
     return m ? m[1] : null;
 }
 
+// The prefix line of an npmrc file (npm's ${VAR} and ~/ expanded), or null.
+function npmrcPrefix(file, env, home) {
+    let text;
+    try { text = fs.readFileSync(file, "utf8"); } catch { return null; }
+    const m = /^[ \t]*prefix[ \t]*=[ \t]*(.*?)[ \t]*$/m.exec(text);
+    if (!m || !m[1]) return null;
+    // as npm's ini: a quoted value is literal, an unquoted one ends at an unescaped ; or #
+    const q = /^(["'])(.*)\1$/.exec(m[1]);
+    let v = (q ? q[2] : m[1].replace(/(^|[^\\])[;#].*$/, "$1").trim().replace(/\\([;#\\])/g, "$1")).replace(/\$\{([^}]+)\}/g, (_, k) => env[k] || "");
+    if (/^~[\\/]/.test(v) && home) v = path.join(home, v.slice(2));
+    return v;
+}
+
+// Where npm installs a global sentinel-ir-mcp: the first entry is npm's prefix now; the rest are other
+// places a global install may sit (also %APPDATA%\\npm).
+function globalDirs(env, platform, execPath) {
+    const p = platform === "win32" ? path.win32 : path.posix;
+    const nodePrefix = platform === "win32" ? p.dirname(execPath) : p.dirname(p.dirname(execPath));
+    const home = env.HOME || env.USERPROFILE;
+    const cfg = (k) => env[`npm_config_${k}`] || env[`NPM_CONFIG_${k.toUpperCase()}`];
+    // npm's prefix: environment, then user, global and builtin npmrc (Homebrew sets it there), then the default
+    const builtinPrefix = npmrcPrefix(p.join(nodePrefix, ...(platform === "win32" ? [] : ["lib"]), "node_modules", "npm", "npmrc"), env, home);
+    const prefixes = [cfg("prefix"),
+        npmrcPrefix(cfg("userconfig") || (home ? p.join(home, ".npmrc") : ""), env, home),
+        npmrcPrefix(cfg("globalconfig") || p.join(builtinPrefix || nodePrefix, "etc", "npmrc"), env, home),
+        builtinPrefix,
+        nodePrefix,
+        platform === "win32" && env.APPDATA ? p.join(env.APPDATA, "npm") : null];
+    const dirs = prefixes.filter(Boolean).map((x) => p.join(x, ...(platform === "win32" ? [] : ["lib"]), "node_modules", "sentinel-ir-mcp"));
+    return [...new Set(dirs)];
+}
+
+const realDir = (d) => { try { return fs.realpathSync(d); } catch { return d; } };
+const sameDir = (a, b) => a.replace(/[\\/]+$/, "").toLowerCase() === b.replace(/[\\/]+$/, "").toLowerCase();
+
 // Where the package in dir is installed: an npx cache copy, a global install or elsewhere.
-function installKind(dir) {
+function installKind(dir, globals = []) {
     const npx = npxCopyDir(dir);
     if (npx) return { kind: "npx", dir: npx, key: /[^\\/]+$/.exec(npx)[0] };
-    if (/[\\/](lib|npm)[\\/]node_modules[\\/]sentinel-ir-mcp[\\/]?$/i.test(dir)) return { kind: "global", dir };
+    if (/[\\/](lib|npm)[\\/]node_modules[\\/]sentinel-ir-mcp[\\/]?$/i.test(dir) || globals.some((g) => sameDir(g, dir))) return { kind: "global", dir };
     return { kind: "other", dir };
 }
 
+const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+
+const unescapeLogin = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
+
+// The proxy npm would use for url (npm's https-proxy and proxy settings, then HTTPS_PROXY/HTTP_PROXY), null for none,
+// false for a proxy setting doctor cannot use (it then skips instead of going direct).
+function proxyFor(url, env) {
+    const noProxy = env.npm_config_noproxy || env.NO_PROXY || env.no_proxy || "";
+    const host = url.hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
+    for (const rule of noProxy.split(/[\s,]+/).filter(Boolean)) {
+        const bare = /^\[(.*)\](:\d+)?$/.exec(rule)?.[1] ?? (rule.split(":").length === 2 ? rule.replace(/:\d+$/, "") : rule);
+        const r = bare.replace(/^\*?\.?/, "").replace(/\.$/, "").toLowerCase();
+        if (rule === "*" || host === r || host.endsWith("." + r)) return null;
+    }
+    // npm: its https-proxy, then proxy setting, for http registries too; then the environment.
+    const raw = env.npm_config_https_proxy || env.npm_config_proxy || env.HTTPS_PROXY || env.https_proxy || env.HTTP_PROXY || env.http_proxy;
+    if (!raw) return null;
+    try {
+        const p = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`);
+        return p.protocol === "http:" || p.protocol === "https:" ? p : false;
+    } catch { return false; }
+}
+
+// GET url directly or through proxy; calls back with the response. Adds every request it opens to open.
+function openGet(url, env, tls, open, onResponse, onFail) {
+    try { openGetOrThrow(url, env, tls, open, onResponse, onFail); } catch { onFail(); }
+}
+
+function openGetOrThrow(url, env, tls, open, onResponse, onFail) {
+    // The registry login goes in a header we build: Node throws on a malformed % in URL credentials.
+    const bare = new URL(url.href);
+    bare.username = bare.password = "";
+    const headers = { accept: "application/json",
+        ...(url.username || url.password ? { authorization: "Basic " + Buffer.from(`${unescapeLogin(url.username)}:${unescapeLogin(url.password)}`).toString("base64") } : {}) };
+    const proxy = proxyFor(url, env);
+    if (proxy === false) { onFail(); return; }
+    if (!proxy) {
+        const req = (url.protocol === "https:" ? https : http).get(bare, { headers, ...tls }, onResponse);
+        req.on("error", onFail);
+        open.push(req);
+        return;
+    }
+    const proxyLib = proxy.protocol === "https:" ? https : http;
+    const auth = proxy.username
+        ? { "proxy-authorization": "Basic " + Buffer.from(`${unescapeLogin(proxy.username)}:${unescapeLogin(proxy.password)}`).toString("base64") }
+        : {};
+    const target = { host: proxy.hostname.replace(/^\[|\]$/g, ""), port: proxy.port || (proxy.protocol === "https:" ? 443 : 80) };
+    if (url.protocol === "http:") {
+        const req = proxyLib.get({ ...target, path: bare.href, headers: { ...headers, ...auth, host: bare.host } }, onResponse);
+        req.on("error", onFail);
+        open.push(req);
+        return;
+    }
+    const connect = proxyLib.request({ ...target, method: "CONNECT", path: `${url.hostname}:${url.port || 443}`, headers: { ...auth, host: `${url.hostname}:${url.port || 443}` } });
+    connect.on("connect", (res, socket) => {
+        if (res.statusCode !== 200) { socket.destroy(); onFail(); return; }
+        const req = https.get(bare, {
+            headers, ...tls,
+            createConnection: () => require("tls").connect({ socket, host: url.hostname.replace(/^\[|\]$/g, ""), servername: net.isIP(url.hostname.replace(/^\[|\]$/g, "")) ? undefined : url.hostname, ...tls })
+        }, onResponse);
+        req.on("error", onFail);
+        open.push(req);
+    });
+    connect.on("error", onFail);
+    connect.end();
+    open.push(connect);
+}
+
+// npm's strict-ssl and cafile settings as TLS options; null when the cafile is unreadable (npm fails then too).
+function npmTls(env) {
+    const t = {};
+    if (/^false$/i.test(env.npm_config_strict_ssl || "")) t.rejectUnauthorized = false;
+    if (env.npm_config_cafile) {
+        try { t.ca = [...require("tls").rootCertificates, fs.readFileSync(env.npm_config_cafile, "utf8")]; } catch { return null; }
+    }
+    return t;
+}
+
 // npm dist-tags of sentinel-ir-mcp, or null when the registry does not answer in time.
-function fetchDistTags(env, timeoutMs = 3000) {
+// Uses npm_config_registry and the proxy npm would use; follows up to 3 redirects.
+function fetchDistTags(env, timeoutMs = 3000, tls = npmTls(env)) {
     return new Promise((resolve) => {
+        if (tls === null) { resolve(null); return; }
+        let open = [];
+        let done = false;
+        const finish = (v) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            for (const r of open) r.destroy();
+            resolve(v);
+        };
+        const timer = setTimeout(() => finish(null), timeoutMs);
+        const get = (url, hops) => {
+            if (url.protocol !== "http:" && url.protocol !== "https:") { finish(null); return; }
+            openGet(url, env, tls, open, (res) => {
+                if (REDIRECTS.has(res.statusCode) && res.headers.location && hops < 3) {
+                    res.destroy();
+                    let next;
+                    try { next = new URL(res.headers.location, url); } catch { finish(null); return; }
+                    if (url.protocol === "https:" && next.protocol !== "https:") { finish(null); return; }
+                    get(next, hops + 1);
+                    return;
+                }
+                if (res.statusCode !== 200) { res.resume(); finish(null); return; }
+                const chunks = [];
+                let size = 0;
+                res.on("data", (d) => { chunks.push(d); size += d.length; if (size > 65536) finish(null); });
+                res.on("end", () => {
+                    try {
+                        const tags = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+                        finish(tags && typeof tags === "object" && !Array.isArray(tags) ? tags : null);
+                    } catch { finish(null); }
+                });
+                res.on("error", () => finish(null));
+                res.on("aborted", () => finish(null));
+            }, () => finish(null));
+        };
         let url;
         try {
             url = new URL("-/package/sentinel-ir-mcp/dist-tags", (env.npm_config_registry || "https://registry.npmjs.org/").replace(/\/?$/, "/"));
-        } catch { resolve(null); return; }
-        const lib = url.protocol === "http:" ? http : url.protocol === "https:" ? https : null;
-        if (!lib) { resolve(null); return; }
-        const req = lib.get(url, { timeout: timeoutMs, headers: { accept: "application/json" } }, (res) => {
-            if (res.statusCode !== 200) { res.resume(); resolve(null); return; }
-            let body = "";
-            res.setEncoding("utf8");
-            res.on("data", (d) => { body += d; if (body.length > 65536) { resolve(null); req.destroy(); } });
-            res.on("end", () => {
-                try {
-                    const tags = JSON.parse(body);
-                    resolve(tags && typeof tags === "object" && !Array.isArray(tags) ? tags : null);
-                } catch { resolve(null); }
-            });
+        } catch { finish(null); return; }
+        get(url, 0);
+    });
+}
+
+// fetchDistTags in a child process that is killed on timeout: a DNS lookup that never answers
+// cannot be cancelled and would keep doctor's own process alive for up to 30 s.
+function fetchDistTagsIsolated(env, timeoutMs = 3000) {
+    return new Promise((resolve) => {
+        let out = "";
+        let child;
+        let done = false;
+        const finish = (v) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            if (child) child.kill();
+            resolve(v);
+        };
+        const timer = setTimeout(() => finish(null), timeoutMs + 1000);
+        try {
+            child = require("child_process").spawn(process.execPath,
+                ["-e", `require(process.argv[1]).fetchDistTags(process.env, ${Number(timeoutMs)}).then((t) => process.stdout.write(JSON.stringify(t) + "\\n"))`, __filename],
+                { env, stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+        } catch { finish(null); return; }
+        child.on("error", () => finish(null));
+        child.on("close", () => finish(null));
+        child.stdout.on("data", (d) => {
+            out += d;
+            if (!out.includes("\n")) return;
+            let tags = null;
+            try { tags = JSON.parse(out); } catch { /* unusable */ }
+            finish(tags && typeof tags === "object" && !Array.isArray(tags) ? tags : null);
         });
-        const timer = setTimeout(() => req.destroy(), timeoutMs);
-        req.on("timeout", () => req.destroy());
-        req.on("error", () => resolve(null));
-        req.on("close", () => { clearTimeout(timer); resolve(null); });
     });
 }
 
@@ -97,20 +263,30 @@ async function checkUpdate(io, add) {
     const tag = m ? `stable-${m[1]}.${m[2]}` : "latest";
     const tags = await io.fetchDistTags(io.env);
     if (!tags) {
-        add("skip", "package.update", "Could not reach the npm registry to look for a newer sentinel-ir-mcp (offline or blocked)");
+        add("skip", "package.update", "No usable answer from the npm registry about a newer sentinel-ir-mcp (offline, blocked or an unexpected reply)");
         return;
     }
-    const newest = tags[tag];
-    if (typeof newest !== "string" || !/^\d+\.\d+\.\d+$/.test(newest)) {
+    const newest = Object.prototype.hasOwnProperty.call(tags, tag) ? tags[tag] : undefined;
+    if (newest === undefined) {
         add("skip", "package.update", `npm has no ${tag} tag for sentinel-ir-mcp`);
         return;
     }
-    if (!olderThan(version, newest)) {
+    if (typeof newest !== "string" || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(newest)) {
+        const shown = JSON.stringify(newest) ?? String(newest);
+        add("skip", "package.update", `npm's ${tag} tag points to ${shown.length > 40 ? shown.slice(0, 40) + "..." : shown}, not a release version; no update check`);
+        return;
+    }
+    if (newest === version) {
         add("ok", "package.update", `sentinel-ir-mcp ${version} is the newest ${tag} on npm`);
         return;
     }
+    if (!olderThan(version, newest)) {
+        add("ok", "package.update", `sentinel-ir-mcp ${version} is newer than npm's ${tag} (${newest})`);
+        return;
+    }
     const spec = `sentinel-ir-mcp@${tag}`;
-    const from = installKind(io.packageDir || PACKAGE_DIR);
+    const globals = globalDirs(io.env, io.platform, io.execPath || process.execPath).flatMap((g) => [g, realDir(g)]);
+    const from = installKind(io.packageDir || PACKAGE_DIR, globals);
     const where = { npx: `the npx cache (${from.dir})`, global: `a global install (${from.dir})`, other: from.dir }[from.kind];
     const fix = {
         npx: `Close the client, delete that folder (npm 11: npm cache npx rm ${from.key}), then run: npx -y ${spec} setup`,
@@ -156,6 +332,21 @@ function staleNpxCopies(cacheDir) {
         stale.push({ key, dir, spec, mcp: readVersion(path.join(mod, "sentinel-ir-mcp", "package.json")), ir });
     }
     return stale;
+}
+
+// A global install other than this copy that is older or runs an old sentinel-ir:
+// bare `npx sentinel-ir-mcp` and client entries without a version start it.
+function checkGlobalInstall(io, add) {
+    const running = io.packageDir || PACKAGE_DIR;
+    // only npm's current prefix: bare npx starts the global install there, not one left under an old prefix
+    for (const dir of globalDirs(io.env, io.platform, io.execPath || process.execPath).slice(0, 1)) {
+        if (sameDir(dir, running) || sameDir(realDir(dir), realDir(running)) || !fs.existsSync(path.join(dir, "package.json"))) continue;
+        const mcp = readVersion(path.join(dir, "package.json"));
+        const ir = readVersion(path.join(dir, "node_modules", "sentinel-ir", "package.json"));
+        if (!olderThan(mcp, version) && !olderThan(ir, IR_MIN)) continue;
+        add("warn", "package.global", `A global install of sentinel-ir-mcp ${mcp} (sentinel-ir ${ir}) is at ${dir}; bare npx sentinel-ir-mcp and client entries without a version start it`,
+            `Run: npm install -g ${PACKAGE_SPEC} (or npm uninstall -g sentinel-ir-mcp)`);
+    }
 }
 
 function checkNpxCache(env, platform, add) {
@@ -350,6 +541,7 @@ async function runDoctor(opts, io) {
             npxCopyDir() ? `Close the client, delete ${npxCopyDir()}, then run: npx -y ${PACKAGE_SPEC} setup` : `Reinstall it so that npm installs sentinel-ir ${dependencies["sentinel-ir"]}.`);
     } else add("ok", "package", `sentinel-ir-mcp ${version}, sentinel-ir ${ir}`);
     await checkUpdate(io, add);
+    checkGlobalInstall(io, add);
     checkNpxCache(io.env, io.platform, add);
 
     const project = path.resolve(io.cwd, opts.project || ".");
@@ -401,4 +593,4 @@ async function runDoctor(opts, io) {
     return failed ? 1 : 0;
 }
 
-module.exports = { runDoctor, entryFolders, olderThan, staleNpxCopies, fetchDistTags, installKind, IR_MIN };
+module.exports = { runDoctor, entryFolders, olderThan, staleNpxCopies, fetchDistTags, fetchDistTagsIsolated, proxyFor, installKind, globalDirs, IR_MIN };

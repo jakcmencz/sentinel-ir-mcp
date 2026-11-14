@@ -7,7 +7,8 @@ const os = require("os");
 const path = require("path");
 const { runCommand } = require("../src/cli");
 const http = require("http");
-const { entryFolders, fetchDistTags, installKind } = require("../src/doctor");
+const https = require("https");
+const { entryFolders, fetchDistTags, fetchDistTagsIsolated, installKind, proxyFor, globalDirs, IR_MIN } = require("../src/doctor");
 const { version } = require("../package.json");
 
 function sandbox() {
@@ -27,7 +28,7 @@ async function run(sb, command, argv, extra = {}) {
         stdout: { write: (s) => { stdout += s; } },
         stderr: { write: (s) => { stderr += s; } },
         env: { HOME: sb.home, ...(extra.env || {}) }, platform: extra.platform || "linux", cwd: extra.cwd || sb.project, isTTY: false, prompt: null,
-        now: () => Date.UTC(2026, 9, 18), nodeVersion: extra.nodeVersion,
+        now: () => Date.UTC(2026, 9, 18), nodeVersion: extra.nodeVersion, execPath: path.join(sb.base, "node", "bin", "node"),
         ...(extra.io || {})
     };
     const code = await runCommand(command, argv, io);
@@ -322,9 +323,17 @@ test("doctor: current, offline, missing tag and no update check", async () => {
     try {
         const status = async (fetch) => byId((await doctorJson(sb, [], { io: fetch ? { fetchDistTags: fetch } : {} })).report, "package.update").map((c) => [c.status, c.message]);
         assert.deepEqual(await status(async () => ({ [STABLE]: version })), [["ok", `sentinel-ir-mcp ${version} is the newest ${STABLE} on npm`]]);
-        assert.match((await status(async () => null))[0].join(" "), /^skip Could not reach the npm registry/);
+        assert.deepEqual(await status(async () => ({ [STABLE]: "0.0.1" })), [["ok", `sentinel-ir-mcp ${version} is newer than npm's ${STABLE} (0.0.1)`]]);
+        assert.match((await status(async () => null))[0].join(" "), /^skip No usable answer from the npm registry/);
         assert.match((await status(async () => ({ latest: "9.9.9" })))[0].join(" "), /^skip npm has no stable-/);
-        assert.match((await status(async () => ({ [STABLE]: "<script>" })))[0][0], /skip/);
+        assert.match((await status(async () => JSON.parse('{"__proto__":{"stable-0.5":"9.9.9"}}')))[0].join(" "), /^skip npm has no stable-/);
+        assert.deepEqual(await status(async () => ({ [STABLE]: "0.5.5-beta.1" })), [["skip", `npm's ${STABLE} tag points to "0.5.5-beta.1", not a release version; no update check`]]);
+        const [[st, msg]] = await status(async () => ({ [STABLE]: "0.5.9\u001b[2J\nAll checks passed." + "x".repeat(100) }));
+        assert.equal(st, "skip");
+        assert.ok(!/[\u0000-\u001f]/.test(msg), "control characters from the registry are escaped");
+        assert.match(msg, /\.\.\., not a release version/);
+        assert.match((await status(async () => ({ [STABLE]: "0.05.06" })))[0][1], /not a release version/, "npm never publishes leading zeros");
+        assert.match((await status(async () => ({ [STABLE]: 5 })))[0][1], /points to 5, not a release/);
         assert.deepEqual(await status(null), [], "tests and embedders without fetchDistTags stay offline");
     } finally { sb.cleanup(); }
 });
@@ -349,12 +358,91 @@ test("installKind tells npx copies, global installs and other folders apart", ()
     assert.equal(installKind("/home/a/proj/node_modules/sentinel-ir-mcp").kind, "other");
 });
 
+test("doctor finds an old global install that bare npx starts, also under a Windows prefix without lib", async () => {
+    const sb = sandbox();
+    try {
+        const put = (dir, mcp, ir) => {
+            fs.mkdirSync(path.join(dir, "node_modules", "sentinel-ir"), { recursive: true });
+            fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ version: mcp }));
+            fs.writeFileSync(path.join(dir, "node_modules", "sentinel-ir", "package.json"), JSON.stringify({ version: ir }));
+        };
+        const prefix = path.join(sb.base, "prefix");
+        put(path.join(prefix, "lib", "node_modules", "sentinel-ir-mcp"), "0.3.0", "0.3.1");
+        const { code, report } = await doctorJson(sb, [], { env: { npm_config_prefix: prefix } });
+        const [g] = byId(report, "package.global");
+        assert.equal(g.status, "warn");
+        assert.match(g.message, /sentinel-ir-mcp 0\.3\.0 \(sentinel-ir 0\.3\.1\) is at .*prefix/);
+        assert.match(g.fix, /npm install -g sentinel-ir-mcp@stable-/);
+        assert.equal(code, 0);
+        put(path.join(prefix, "lib", "node_modules", "sentinel-ir-mcp"), version, IR_MIN);
+        assert.deepEqual(byId((await doctorJson(sb, [], { env: { npm_config_prefix: prefix } })).report, "package.global"), [], "current global copy");
+        assert.deepEqual(byId((await doctorJson(sb, [])).report, "package.global"), [], "no global copy");
+        fs.writeFileSync(path.join(sb.home, ".npmrc"), `prefix=${path.join(sb.base, "newprefix")}\n`);
+        put(path.join(prefix, "lib", "node_modules", "sentinel-ir-mcp"), "0.3.0", "0.3.1");
+        assert.deepEqual(byId((await doctorJson(sb, [], { io: { execPath: path.join(prefix, "bin", "node") } })).report, "package.global"), [], "an old copy under a prefix npm no longer uses");
+        assert.equal(byId((await doctorJson(sb, [], { env: { npm_config_prefix: prefix } })).report, "package.global").length, 1);
+        const nvm = "C:\\nvm4w\\nodejs";
+        assert.equal(installKind(`${nvm}\\node_modules\\sentinel-ir-mcp`, globalDirs({}, "win32", `${nvm}\\node.exe`)).kind, "global");
+        assert.deepEqual(globalDirs({ APPDATA: "C:\\U\\AppData\\Roaming" }, "win32", `${nvm}\\node.exe`),
+            [`${nvm}\\node_modules\\sentinel-ir-mcp`, "C:\\U\\AppData\\Roaming\\npm\\node_modules\\sentinel-ir-mcp"]);
+        assert.deepEqual(globalDirs({}, "linux", "/usr/bin/node"), ["/usr/lib/node_modules/sentinel-ir-mcp"]);
+        const linked = path.join(sb.base, "linked");
+        fs.mkdirSync(linked);
+        fs.rmSync(path.join(prefix, "lib", "node_modules", "sentinel-ir-mcp"), { recursive: true });
+        fs.symlinkSync(linked, path.join(prefix, "lib", "node_modules", "sentinel-ir-mcp"), "junction");
+        const { report: r2 } = await doctorJson(sb, [], { env: { npm_config_prefix: prefix }, io: { fetchDistTags: newerTags, packageDir: linked } });
+        assert.match(byId(r2, "package.update")[0].message, /a global install/, "npm link / npm i -g <folder>");
+    } finally { sb.cleanup(); }
+});
+
+test("globalDirs reads npm's prefix from the user, global and builtin npmrc (Homebrew)", { skip: process.platform === "win32" && "posix npm layout" }, () => {
+    const sb = sandbox();
+    try {
+        const cellar = path.join(sb.base, "Cellar", "node", "24");
+        fs.mkdirSync(path.join(cellar, "lib", "node_modules", "npm"), { recursive: true });
+        fs.writeFileSync(path.join(cellar, "lib", "node_modules", "npm", "npmrc"), `prefix = "${path.join(sb.base, "brew")}"\n`);
+        const node = path.join(cellar, "bin", "node");
+        const g = (x) => path.join(x, "lib", "node_modules", "sentinel-ir-mcp");
+        assert.deepEqual(globalDirs({ HOME: sb.home }, "linux", node), [g(path.join(sb.base, "brew")), g(cellar)], "builtin npmrc");
+        fs.writeFileSync(path.join(sb.home, ".npmrc"), "registry=https://r/\nprefix=~/.npm-global\n");
+        assert.equal(globalDirs({ HOME: sb.home }, "linux", node)[0], g(path.join(sb.home, ".npm-global")), "~/.npmrc");
+        fs.writeFileSync(path.join(sb.home, ".npmrc"), "prefix=/c/d ; set by setup # really\n");
+        assert.equal(globalDirs({ HOME: sb.home }, "linux", node)[0], g("/c/d"), "inline comment");
+        fs.writeFileSync(path.join(sb.home, ".npmrc"), "prefix=/c\\#1\n");
+        assert.equal(globalDirs({ HOME: sb.home }, "linux", node)[0], g("/c#1"), "escaped #");
+        fs.writeFileSync(path.join(sb.home, ".npmrc"), "prefix=${PFX}/x\n");
+        assert.equal(globalDirs({ HOME: sb.home, PFX: "/opt" }, "linux", node)[0], g("/opt/x"), "${VAR}");
+        assert.equal(globalDirs({ HOME: sb.home, npm_config_prefix: "/env" }, "linux", node)[0], g("/env"), "environment first");
+        assert.equal(globalDirs({ HOME: sb.home, NPM_CONFIG_PREFIX: "/env" }, "linux", node)[0], g("/env"), "uppercase environment");
+        fs.mkdirSync(path.join(sb.base, "brew", "etc"), { recursive: true });
+        fs.writeFileSync(path.join(sb.base, "brew", "etc", "npmrc"), "prefix=/glob\n");
+        assert.ok(globalDirs({}, "linux", node).includes(g("/glob")), "global npmrc under the builtin prefix");
+    } finally { sb.cleanup(); }
+});
+
+test("proxyFor: NO_PROXY with IPv6, ports and trailing dots; unusable proxies are not bypassed", () => {
+    const P = "http://p:3128";
+    const via = (u, env) => proxyFor(new URL(u), { HTTPS_PROXY: P, HTTP_PROXY: P, ...env });
+    for (const rule of ["::1", "[::1]", "[::1]:443"]) assert.equal(via("https://[::1]/", { NO_PROXY: rule }), null, rule);
+    assert.equal(via("https://registry.npmjs.org./", { NO_PROXY: "npmjs.org" }), null);
+    assert.equal(via("https://registry.npmjs.org/", { NO_PROXY: "registry.npmjs.org.:443" }), null);
+    assert.equal(via("https://registry.npmjs.org/", { NO_PROXY: "example.com" }).href, "http://p:3128/");
+    assert.equal(via("https://[::2]/", { NO_PROXY: "::1" }).href, "http://p:3128/");
+    for (const bad of ["socks5://p:1080", "http://[bad"]) assert.equal(via("https://registry.npmjs.org/", { HTTPS_PROXY: bad }), false, bad);
+    assert.equal(proxyFor(new URL("https://registry.npmjs.org/"), {}), null);
+    assert.equal(proxyFor(new URL("http://registry.internal/"), { HTTPS_PROXY: P }).href, "http://p:3128/", "npm uses https-proxy for http registries too");
+    for (const u of ["http://registry.internal/", "https://registry.npmjs.org/"]) {
+        assert.equal(proxyFor(new URL(u), { npm_config_proxy: P, HTTPS_PROXY: "http://env:1" }).href, "http://p:3128/", `npm's proxy setting before HTTPS_PROXY: ${u}`);
+    }
+});
+
 test("fetchDistTags reads the registry from npm_config_registry and gives up on bad answers", async () => {
     let mode = "ok";
     const server = http.createServer((req, res) => {
         if (mode === "slow") return; // never answers
         if (mode === "500") { res.writeHead(500); return res.end("{}"); }
         if (mode === "junk") { res.writeHead(200); return res.end("not json"); }
+        if (mode === "wide") { res.writeHead(200); return res.end(JSON.stringify({ latest: "0.5.3", pad: "č".repeat(40000) })); }
         if (mode === "huge") { res.writeHead(200); return res.end(JSON.stringify({ latest: "0.5.3", pad: "x".repeat(70000) })); }
         assert.equal(req.url, "/npm/-/package/sentinel-ir-mcp/dist-tags");
         res.writeHead(200, { "content-type": "application/json" });
@@ -364,13 +452,137 @@ test("fetchDistTags reads the registry from npm_config_registry and gives up on 
     const env = { npm_config_registry: `http://127.0.0.1:${server.address().port}/npm` };
     try {
         assert.deepEqual(await fetchDistTags(env), { latest: "0.5.3", "stable-0.5": "0.5.3" });
-        for (mode of ["500", "junk", "huge"]) assert.equal(await fetchDistTags(env), null, mode);
+        assert.deepEqual(await fetchDistTagsIsolated({ ...process.env, ...env }), { latest: "0.5.3", "stable-0.5": "0.5.3" }, "in a child process");
+        for (mode of ["500", "junk", "huge", "wide"]) assert.equal(await fetchDistTags(env), null, mode);
         mode = "slow";
         const t0 = Date.now();
         assert.equal(await fetchDistTags(env, 300), null);
         assert.ok(Date.now() - t0 < 2000);
+        const t1 = Date.now();
+        assert.equal(await fetchDistTagsIsolated({ ...process.env, ...env }, 300), null, "child gives up");
+        assert.ok(Date.now() - t1 < 2500);
+        mode = "junk";
+        assert.equal(await fetchDistTagsIsolated({ ...process.env, ...env }), null, "child: bad answer");
         assert.equal(await fetchDistTags({ npm_config_registry: "ftp://x/" }), null);
         assert.equal(await fetchDistTags({ npm_config_registry: "::bad::" }), null);
         assert.equal(await fetchDistTags({ npm_config_registry: "http://127.0.0.1:1/" }), null);
     } finally { server.closeAllConnections(); server.close(); }
+});
+
+function tlsCert() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sir-tls-"));
+    try {
+        require("child_process").execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost",
+            "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1", "-keyout", path.join(dir, "k.pem"), "-out", path.join(dir, "c.pem")], { stdio: "ignore" });
+        return { key: fs.readFileSync(path.join(dir, "k.pem")), cert: fs.readFileSync(path.join(dir, "c.pem")) };
+    } catch { return null; } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+const TAGS = { latest: "0.5.3", "stable-0.5": "0.5.3" };
+const listen = (server) => new Promise((r) => server.listen(0, "127.0.0.1", () => r(server.address().port)));
+const stop = (...servers) => { for (const s of servers) { s.closeAllConnections?.(); s.close(); } };
+
+test("fetchDistTags follows up to 3 redirects, never from https to http", async () => {
+    const server = http.createServer((req, res) => {
+        const n = +(/\/hop(\d+)\//.exec(req.url) || [0, 0])[1];
+        if (req.url.startsWith("/hop")) { res.writeHead(n % 2 ? 302 : 301, { location: n > 1 ? `/hop${n - 1}/x` : "/npm/-/package/sentinel-ir-mcp/dist-tags" }); return res.end(); }
+        if (req.url === "/abs/-/package/sentinel-ir-mcp/dist-tags") { res.writeHead(307, { location: `http://127.0.0.1:${server.address().port}/npm/-/package/sentinel-ir-mcp/dist-tags` }); return res.end(); }
+        if (req.url === "/ftp/-/package/sentinel-ir-mcp/dist-tags") { res.writeHead(302, { location: "ftp://127.0.0.1/" }); return res.end(); }
+        if (req.url === "/npm/-/package/sentinel-ir-mcp/dist-tags") { res.writeHead(200); return res.end(JSON.stringify(TAGS)); }
+        if (req.url === "/open/-/package/sentinel-ir-mcp/dist-tags") { res.writeHead(302, { location: "/hang" }); return res.write("x"); }
+        if (req.url === "/hang") return;
+        res.writeHead(404); res.end();
+    });
+    let live = 0;
+    server.on("connection", (s) => { live++; s.on("close", () => live--); });
+    const port = await listen(server);
+    try {
+        const at = (p) => fetchDistTags({ npm_config_registry: `http://127.0.0.1:${port}/${p}` });
+        assert.deepEqual(await at("abs/"), TAGS);
+        assert.deepEqual(await at("hop3/"), TAGS, "3 redirects");
+        assert.equal(await at("hop4/"), null, "4 redirects");
+        assert.equal(await at("ftp/"), null);
+        assert.equal(await fetchDistTags({ npm_config_registry: `http://127.0.0.1:${port}/open/` }, 300), null);
+        await new Promise((r) => setTimeout(r, 100));
+        assert.equal(live, 0, "timeout closes the redirect response and the next request");
+        const cert = tlsCert();
+        if (cert) {
+            const tlsServer = https.createServer(cert, (req, res) => { res.writeHead(302, { location: `http://127.0.0.1:${port}/npm/-/package/sentinel-ir-mcp/dist-tags` }); res.end(); });
+            const tport = await listen(tlsServer);
+            try { assert.equal(await fetchDistTags({ npm_config_registry: `https://127.0.0.1:${tport}/` }, 3000, { ca: cert.cert }), null); } finally { stop(tlsServer); }
+        }
+    } finally { stop(server); }
+});
+
+test("fetchDistTags goes through the proxy npm would use", async () => {
+    const seen = [];
+    let lastAuth;
+    const registry = http.createServer((req, res) => { lastAuth = req.headers.authorization; res.writeHead(200); res.end(JSON.stringify(TAGS)); });
+    const rport = await listen(registry);
+    const cert = tlsCert();
+    const tlsRegistry = cert && https.createServer(cert, (req, res) => { if (req.url.startsWith("/hang/")) return; res.writeHead(200); res.end(JSON.stringify({ ...TAGS, tls: "1" })); });
+    const tport = tlsRegistry && await listen(tlsRegistry);
+    const proxy = http.createServer((req, res) => {
+        seen.push(["GET", req.url, req.headers["proxy-authorization"] || ""]);
+        if (req.url.includes("deny")) { res.writeHead(407); return res.end(); }
+        const u = new URL(req.url);
+        http.get({ host: u.hostname, port: u.port, path: u.pathname, headers: { authorization: req.headers.authorization || "" } }, (r) => { res.writeHead(r.statusCode); r.pipe(res); });
+    });
+    let tunnels = 0;
+    proxy.on("connect", (req, socket) => {
+        if (req.url === "localhost:2") { tunnels++; socket.on("close", () => tunnels--); }
+        seen.push(["CONNECT", req.url, req.headers["proxy-authorization"] || ""]);
+        if (req.url.startsWith("deny")) { socket.end("HTTP/1.1 403 Forbidden\r\n\r\n"); return; }
+        const [host, port] = /^(localhost|127\.0\.0\.[12]):[12]$/.test(req.url) ? ["localhost", tport] : req.url.split(":");
+        const up = require("net").connect(+port, host === "localhost" ? "127.0.0.1" : host, () => { socket.write("HTTP/1.1 200 OK\r\n\r\n"); up.pipe(socket); socket.pipe(up); });
+        up.on("error", () => socket.destroy());
+    });
+    const pport = await listen(proxy);
+    const P = `http://127.0.0.1:${pport}`;
+    try {
+        const reg = `http://127.0.0.1:${rport}/`;
+        assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: P }), TAGS);
+        assert.deepEqual(seen.pop(), ["GET", `${reg}-/package/sentinel-ir-mcp/dist-tags`, ""]);
+        assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, npm_config_proxy: `http://u%40x:p%3Aw@127.0.0.1:${pport}`, HTTP_PROXY: "http://127.0.0.1:1" }), TAGS);
+        assert.equal(seen.pop()[2], "Basic " + Buffer.from("u@x:p:w").toString("base64"), "npm config wins, credentials decoded");
+        assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, http_proxy: `127.0.0.1:${pport}` }), TAGS, "proxy without a scheme");
+        assert.deepEqual(await fetchDistTags({ npm_config_registry: `http://tok:s%40cret@127.0.0.1:${rport}/`, HTTP_PROXY: P }), TAGS);
+        assert.deepEqual(seen.pop(), ["GET", `${reg}-/package/sentinel-ir-mcp/dist-tags`, ""], "registry login is not in the proxied request line");
+        assert.equal(lastAuth, "Basic " + Buffer.from("tok:s@cret").toString("base64"), "registry login sent as Authorization");
+        assert.deepEqual(await fetchDistTags({ npm_config_registry: `http://tok:50%@127.0.0.1:${rport}/`, HTTP_PROXY: `http://u:1%zz@127.0.0.1:${pport}` }), TAGS, "a literal % in a login");
+        assert.equal(lastAuth, "Basic " + Buffer.from("tok:50%").toString("base64"));
+        assert.deepEqual(await fetchDistTags({ npm_config_registry: `http://u:p%zz@127.0.0.1:${rport}/` }), TAGS, "a malformed % in a direct registry login");
+        assert.equal(lastAuth, "Basic " + Buffer.from("u:p%zz").toString("base64"));
+        await fetchDistTags({ npm_config_registry: `http://:tok@127.0.0.1:${rport}/` });
+        assert.equal(lastAuth, "Basic " + Buffer.from(":tok").toString("base64"), "password-only login");
+        seen.length = 0;
+        assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: P, NO_PROXY: "example.com, 127.0.0.1" }), TAGS);
+        assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: P, no_proxy: "*" }), TAGS);
+        assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: "http://127.0.0.1:1", NO_PROXY: "127.0.0.1", npm_config_noproxy: "" }), TAGS, "npx exports npm_config_noproxy=\"\"");
+        assert.deepEqual(seen, [], "NO_PROXY bypasses the proxy");
+        assert.equal(await fetchDistTags({ npm_config_registry: `http://127.0.0.1:${rport}/deny/`, HTTP_PROXY: P }), null, "407");
+        assert.equal(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: "http://127.0.0.1:1" }), null, "proxy down");
+        if (cert) {
+            const treg = `https://localhost:${tport}/`;
+            assert.deepEqual(await fetchDistTags({ npm_config_registry: treg, HTTPS_PROXY: P, HTTP_PROXY: "http://127.0.0.1:1" }, 3000, { ca: cert.cert }), { ...TAGS, tls: "1" });
+            assert.deepEqual(seen.pop(), ["CONNECT", `localhost:${tport}`, ""]);
+            assert.deepEqual(await fetchDistTags({ npm_config_registry: "https://localhost:1/", HTTPS_PROXY: P }, 3000, { ca: cert.cert }), { ...TAGS, tls: "1" }, "request goes through the tunnel, not direct");
+            assert.deepEqual(await fetchDistTags({ npm_config_registry: "https://127.0.0.1:1/", HTTPS_PROXY: P }, 3000, { ca: cert.cert }), { ...TAGS, tls: "1" }, "IP registry checked against its IP");
+            assert.equal(await fetchDistTags({ npm_config_registry: "https://127.0.0.2:1/", HTTPS_PROXY: P }, 3000, { ca: cert.cert }), null, "certificate for localhost does not pass for 127.0.0.2");
+            assert.deepEqual(await fetchDistTags({ npm_config_registry: treg, HTTP_PROXY: P }, 3000, { ca: cert.cert }), { ...TAGS, tls: "1" }, "https falls back to HTTP_PROXY");
+            assert.equal(await fetchDistTags({ npm_config_registry: treg, HTTPS_PROXY: P }), null, "certificate still checked through the tunnel");
+            assert.deepEqual(await fetchDistTags({ npm_config_registry: `https://u:p%zz@localhost:${tport}/`, HTTPS_PROXY: P }, 3000, { ca: cert.cert }), { ...TAGS, tls: "1" }, "malformed % in an https login through the tunnel");
+            const cafile = path.join(os.tmpdir(), `sir-ca-${process.pid}.pem`);
+            fs.writeFileSync(cafile, cert.cert);
+            try {
+                assert.deepEqual(await fetchDistTags({ npm_config_registry: treg, npm_config_cafile: cafile }), { ...TAGS, tls: "1" }, "npm cafile");
+                assert.deepEqual(await fetchDistTags({ npm_config_registry: treg, npm_config_strict_ssl: "false" }), { ...TAGS, tls: "1" }, "npm strict-ssl=false");
+                assert.equal(await fetchDistTags({ npm_config_registry: reg, npm_config_cafile: cafile + ".missing" }), null, "unreadable cafile: npm fails too");
+            } finally { fs.rmSync(cafile, { force: true }); }
+            assert.equal(await fetchDistTags({ npm_config_registry: `https://deny:${tport}/`, HTTPS_PROXY: P }), null, "CONNECT refused");
+            assert.equal(await fetchDistTags({ npm_config_registry: "https://localhost:2/hang/", HTTPS_PROXY: P }, 300, { ca: cert.cert }), null);
+            await new Promise((r) => setTimeout(r, 100));
+            assert.equal(tunnels, 0, "timeout closes the tunneled request");
+        }
+    } finally { stop(registry, proxy, ...(tlsRegistry ? [tlsRegistry] : [])); }
 });
