@@ -618,3 +618,9 @@ test("a folder's hashes are split into short lines linked to the call", () => {
     assert.ok(more.every((m) => Buffer.byteLength(JSON.stringify(m)) < 20000));
     assert.deepEqual(splitHashes({ tool: "analyze_file", ok: true }), [{ tool: "analyze_file", ok: true }]);
 });
+
+test("log shows a tool or reason named like an Object method as text", () => {
+    const { describe } = require("../src/logView");
+    assert.deepEqual(describe({ tool: "constructor", path: "x", ok: true, risk: "low" }), ["constructor x: low"]);
+    assert.deepEqual(describe({ tool: "analyze_file", path: "x", ok: false, reason: "toString" }), ["REFUSED file x: toString"]);
+});

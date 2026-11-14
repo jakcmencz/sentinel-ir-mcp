@@ -50,6 +50,7 @@ test("guide prints the agent workflow and writes nothing", () => {
         assert.match(r.stdout, /analyze_directory/);
         assert.match(r.stdout, /skipped\.unreadable/);
         assert.match(r.stdout, /NOT evidence of safety/);
+        assert.match(r.stdout, /JavaScript,\s+TypeScript, Python and Rust/);
         assert.deepEqual(fsx.readdirSync(dir), []);
     } finally { fsx.rmSync(dir, { recursive: true, force: true }); }
 });

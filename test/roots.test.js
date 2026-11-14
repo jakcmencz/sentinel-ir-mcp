@@ -69,3 +69,21 @@ test("with no folders and no client roots only analyze_code works", async () => 
         await client.close();
     }
 });
+
+test("a folder named like ..cache inside the allowed folder is inside; .. is not", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const os = require("os");
+    const { resolveInside, AccessError } = require("../src/paths");
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "sentinel-ir-dotdot-"));
+    try {
+        const root = path.join(base, "proj");
+        fs.mkdirSync(path.join(root, "..cache"), { recursive: true });
+        fs.writeFileSync(path.join(root, "..cache", "x.js"), "1\n");
+        fs.writeFileSync(path.join(base, "out.js"), "1\n");
+        const real = fs.realpathSync(root);
+        assert.equal(resolveInside("..cache/x.js", [real]).display, "..cache/x.js");
+        assert.throws(() => resolveInside("../out.js", [real]), AccessError);
+        assert.throws(() => resolveInside("..", [real]), AccessError);
+    } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});

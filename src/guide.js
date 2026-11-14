@@ -2,8 +2,8 @@
 
 const GUIDE = `# Using Sentinel-IR (MCP server "sentinel-ir")
 
-Sentinel-IR gives you a compact structural summary (IR) of JavaScript and
-TypeScript files: risk level, dangerous capabilities, routes, exports, imports,
+Sentinel-IR gives you a compact structural summary (IR) of JavaScript,
+TypeScript, Python and Rust files: risk level, dangerous capabilities, routes, exports, imports,
 env reads and network/filesystem/process/crypto calls. It reads files only.
 
 Recommended order:
