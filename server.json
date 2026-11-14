@@ -8,13 +8,13 @@
     "source": "github"
   },
   "websiteUrl": "https://gitlab.com/jakubrojicek11/sentinel-ir-mcp",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "sentinel-ir-mcp",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
