@@ -19,7 +19,7 @@ function releaseNotes(readme, version) {
 
 if (require.main === module) {
     const version = String(process.argv[2] || "").replace(/^v/, "");
-    const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
+    const readme = fs.readFileSync(process.argv[3] || path.join(__dirname, "..", "README.md"), "utf8");
     const notes = releaseNotes(readme, version);
     if (!notes) {
         console.error(`README.md has no "**${version}**" section`);
