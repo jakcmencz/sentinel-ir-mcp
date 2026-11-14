@@ -8,7 +8,7 @@ const path = require("path");
 const { runCommand } = require("../src/cli");
 const http = require("http");
 const https = require("https");
-const { entryFolders, fetchDistTags, installKind, proxyFor, globalDirs, IR_MIN } = require("../src/doctor");
+const { entryFolders, fetchDistTags, fetchDistTagsIsolated, installKind, proxyFor, globalDirs, IR_MIN } = require("../src/doctor");
 const { version } = require("../package.json");
 
 function sandbox() {
@@ -391,6 +391,26 @@ test("doctor finds an old global install that bare npx starts, also under a Wind
     } finally { sb.cleanup(); }
 });
 
+test("globalDirs reads npm's prefix from the user, global and builtin npmrc (Homebrew)", () => {
+    const sb = sandbox();
+    try {
+        const cellar = path.join(sb.base, "Cellar", "node", "24");
+        fs.mkdirSync(path.join(cellar, "lib", "node_modules", "npm"), { recursive: true });
+        fs.writeFileSync(path.join(cellar, "lib", "node_modules", "npm", "npmrc"), `prefix = "${path.join(sb.base, "brew")}"\n`);
+        const node = path.join(cellar, "bin", "node");
+        const g = (x) => path.join(x, "lib", "node_modules", "sentinel-ir-mcp");
+        assert.deepEqual(globalDirs({ HOME: sb.home }, "linux", node), [g(path.join(sb.base, "brew")), g(cellar)], "builtin npmrc");
+        fs.writeFileSync(path.join(sb.home, ".npmrc"), "registry=https://r/\nprefix=~/.npm-global\n");
+        assert.equal(globalDirs({ HOME: sb.home }, "linux", node)[0], g(path.join(sb.home, ".npm-global")), "~/.npmrc");
+        fs.writeFileSync(path.join(sb.home, ".npmrc"), "prefix=${PFX}/x\n");
+        assert.equal(globalDirs({ HOME: sb.home, PFX: "/opt" }, "linux", node)[0], g("/opt/x"), "${VAR}");
+        assert.equal(globalDirs({ HOME: sb.home, npm_config_prefix: "/env" }, "linux", node)[0], g("/env"), "environment first");
+        fs.mkdirSync(path.join(sb.base, "brew", "etc"), { recursive: true });
+        fs.writeFileSync(path.join(sb.base, "brew", "etc", "npmrc"), "prefix=/glob\n");
+        assert.ok(globalDirs({}, "linux", node).includes(g("/glob")), "global npmrc under the builtin prefix");
+    } finally { sb.cleanup(); }
+});
+
 test("proxyFor: NO_PROXY with IPv6, ports and trailing dots; unusable proxies are not bypassed", () => {
     const P = "http://p:3128";
     const via = (u, env) => proxyFor(new URL(u), { HTTPS_PROXY: P, HTTP_PROXY: P, ...env });
@@ -423,11 +443,17 @@ test("fetchDistTags reads the registry from npm_config_registry and gives up on 
     const env = { npm_config_registry: `http://127.0.0.1:${server.address().port}/npm` };
     try {
         assert.deepEqual(await fetchDistTags(env), { latest: "0.5.3", "stable-0.5": "0.5.3" });
+        assert.deepEqual(await fetchDistTagsIsolated({ ...process.env, ...env }), { latest: "0.5.3", "stable-0.5": "0.5.3" }, "in a child process");
         for (mode of ["500", "junk", "huge", "wide"]) assert.equal(await fetchDistTags(env), null, mode);
         mode = "slow";
         const t0 = Date.now();
         assert.equal(await fetchDistTags(env, 300), null);
         assert.ok(Date.now() - t0 < 2000);
+        const t1 = Date.now();
+        assert.equal(await fetchDistTagsIsolated({ ...process.env, ...env }, 300), null, "child gives up");
+        assert.ok(Date.now() - t1 < 2500);
+        mode = "junk";
+        assert.equal(await fetchDistTagsIsolated({ ...process.env, ...env }), null, "child: bad answer");
         assert.equal(await fetchDistTags({ npm_config_registry: "ftp://x/" }), null);
         assert.equal(await fetchDistTags({ npm_config_registry: "::bad::" }), null);
         assert.equal(await fetchDistTags({ npm_config_registry: "http://127.0.0.1:1/" }), null);
