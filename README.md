@@ -466,7 +466,7 @@ sentinel-ir-mcp [--exclude <name>]... [--audit-log[=<folder>]] [--max-file-bytes
 - **Reads only.** The MCP server never writes project files, runs commands or
   opens network connections. It writes only the [audit log](#audit-log) when
   you turn it on (outside the project). The separate `setup` command writes
-  only the client config file you confirm; `doctor` starts this package's own server. The only files it opens are `.js`/`.mjs`/`.cjs`/`.ts`/`.mts`/`.cts`/`.tsx`/`.py`/`.pyi` files up to
+  only the client config file you confirm; `doctor` starts this package's own server. The only files it opens are `.js`/`.mjs`/`.cjs`/`.ts`/`.mts`/`.cts`/`.tsx`/`.py`/`.pyi`/`.rs` files up to
   `--max-file-bytes`.
 - **Only inside the allowed folders.** Every path is resolved to its real path
   (symlinks followed) and must lie inside a folder given on the command line,
