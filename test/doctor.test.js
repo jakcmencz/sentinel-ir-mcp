@@ -402,6 +402,10 @@ test("globalDirs reads npm's prefix from the user, global and builtin npmrc (Hom
         assert.deepEqual(globalDirs({ HOME: sb.home }, "linux", node), [g(path.join(sb.base, "brew")), g(cellar)], "builtin npmrc");
         fs.writeFileSync(path.join(sb.home, ".npmrc"), "registry=https://r/\nprefix=~/.npm-global\n");
         assert.equal(globalDirs({ HOME: sb.home }, "linux", node)[0], g(path.join(sb.home, ".npm-global")), "~/.npmrc");
+        fs.writeFileSync(path.join(sb.home, ".npmrc"), "prefix=/c/d ; set by setup # really\n");
+        assert.equal(globalDirs({ HOME: sb.home }, "linux", node)[0], g("/c/d"), "inline comment");
+        fs.writeFileSync(path.join(sb.home, ".npmrc"), "prefix=/c\\#1\n");
+        assert.equal(globalDirs({ HOME: sb.home }, "linux", node)[0], g("/c#1"), "escaped #");
         fs.writeFileSync(path.join(sb.home, ".npmrc"), "prefix=${PFX}/x\n");
         assert.equal(globalDirs({ HOME: sb.home, PFX: "/opt" }, "linux", node)[0], g("/opt/x"), "${VAR}");
         assert.equal(globalDirs({ HOME: sb.home, npm_config_prefix: "/env" }, "linux", node)[0], g("/env"), "environment first");

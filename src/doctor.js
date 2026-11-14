@@ -62,7 +62,9 @@ function npmrcPrefix(file, env, home) {
     try { text = fs.readFileSync(file, "utf8"); } catch { return null; }
     const m = /^[ \t]*prefix[ \t]*=[ \t]*(.*?)[ \t]*$/m.exec(text);
     if (!m || !m[1]) return null;
-    let v = m[1].replace(/^(["'])(.*)\1$/, "$2").replace(/\$\{([^}]+)\}/g, (_, k) => env[k] || "");
+    // as npm's ini: a quoted value is literal, an unquoted one ends at an unescaped ; or #
+    const q = /^(["'])(.*)\1$/.exec(m[1]);
+    let v = (q ? q[2] : m[1].replace(/(^|[^\\])[;#].*$/, "$1").trim().replace(/\\([;#\\])/g, "$1")).replace(/\$\{([^}]+)\}/g, (_, k) => env[k] || "");
     if (/^~[\\/]/.test(v) && home) v = path.join(home, v.slice(2));
     return v;
 }
