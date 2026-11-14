@@ -462,6 +462,7 @@ test("fetchDistTags goes through the proxy npm would use", async () => {
         seen.length = 0;
         assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: P, NO_PROXY: "example.com, 127.0.0.1" }), TAGS);
         assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: P, no_proxy: "*" }), TAGS);
+        assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: "http://127.0.0.1:1", NO_PROXY: "127.0.0.1", npm_config_noproxy: "" }), TAGS, "npx exports npm_config_noproxy=\"\"");
         assert.deepEqual(seen, [], "NO_PROXY bypasses the proxy");
         assert.equal(await fetchDistTags({ npm_config_registry: `http://127.0.0.1:${rport}/deny/`, HTTP_PROXY: P }), null, "407");
         assert.equal(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: "http://127.0.0.1:1" }), null, "proxy down");

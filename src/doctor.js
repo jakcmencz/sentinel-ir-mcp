@@ -66,7 +66,7 @@ const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 
 // The proxy npm would use for url (npm config, then HTTPS_PROXY/HTTP_PROXY), or null.
 function proxyFor(url, env) {
-    const noProxy = env.npm_config_noproxy ?? env.NO_PROXY ?? env.no_proxy ?? "";
+    const noProxy = env.npm_config_noproxy || env.NO_PROXY || env.no_proxy || "";
     const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
     for (const rule of noProxy.split(/[\s,]+/).filter(Boolean)) {
         const r = rule.replace(/:\d+$/, "").replace(/^\*?\.?/, "").toLowerCase();
