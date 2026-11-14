@@ -28,6 +28,11 @@ of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.5.3** splits each tool description into short lines (what it returns,
+parameters, risk scale, when to use another tool) and names the sibling tools
+in all three; `analyze_code` no longer repeats the language rule its schema
+already states. No change to what the tools return.
+
 **0.5.2** shortens the tool descriptions agents read: the risk scale is
 explained once per tool, `analyze_directory` states the defaults of `path`
 (the first allowed folder) and `recursive` (true; `false` scans only the top

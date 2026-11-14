@@ -29,6 +29,19 @@ test("lists the three read-only tools", async () => {
     }
 });
 
+test("each tool description says when to use a sibling and keeps the language rule in the schema", async () => {
+    const { tools } = await client.listTools();
+    const by = Object.fromEntries(tools.map((t) => [t.name, t]));
+    const siblings = { analyze_code: ["analyze_file", "analyze_directory"], analyze_file: ["analyze_directory", "analyze_code"], analyze_directory: ["analyze_file"] };
+    for (const tool of tools) {
+        for (const other of siblings[tool.name]) assert.match(tool.description, new RegExp(`use ${other}|then ${other}`), `${tool.name} -> ${other}`);
+        assert.equal(tool.description.match(/critical =/g).length, 1, tool.name);
+        assert.ok(tool.description.split("\n").every((line) => line.length <= 400), tool.name);
+    }
+    assert.doesNotMatch(by.analyze_code.description, /else javascript/);
+    assert.match(by.analyze_code.inputSchema.properties.language.description, /default javascript/);
+});
+
 test("server reports name, version and instructions", () => {
     assert.equal(client.getServerVersion().name, "sentinel-ir-mcp");
     assert.equal(client.getServerVersion().version, require("../package.json").version);
