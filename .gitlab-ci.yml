@@ -34,7 +34,12 @@ publish:
     - npm test
     - test "v$(node -p 'require("./package.json").version')" = "$CI_COMMIT_TAG"
     - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
-    - npm publish --provenance --access public
+    # Publish once; a retried job only moves the tag. `setup` writes the
+    # stable-<major>.<minor> tag, which npx resolves again on every start.
+    - V="${CI_COMMIT_TAG#v}"
+    - if [ -z "$(npm view "sentinel-ir-mcp@$V" version 2>/dev/null)" ]; then npm publish --provenance --access public; fi
+    - npm dist-tag add "sentinel-ir-mcp@$V" "$(node -p 'require("./src/clients").STABLE_TAG')"
+    - test "$(npm view "sentinel-ir-mcp@$(node -p 'require("./src/clients").STABLE_TAG')" version)" = "$V"
 
 # Real Windows: the packed package, setup/doctor against the real %APPDATA%
 # and home folder, and how `npx -y sentinel-ir-mcp@0.2` starts. No client apps.

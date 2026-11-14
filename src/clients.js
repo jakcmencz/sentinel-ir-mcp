@@ -3,8 +3,13 @@
 const os = require("os");
 const path = require("path");
 
+const { version } = require("../package.json");
+
 const SERVER_NAME = "sentinel-ir";
-const PACKAGE_SPEC = "sentinel-ir-mcp@0.5";
+// An npm dist-tag, not a range: npx keeps starting a cached copy that still
+// satisfies a range such as @0.5, but resolves a tag again on every start.
+const STABLE_TAG = `stable-${version.split(".").slice(0, 2).join(".")}`;
+const PACKAGE_SPEC = `sentinel-ir-mcp@${STABLE_TAG}`;
 const WORKSPACE_VAR = "${workspaceFolder}";
 
 function homeOf(env) {
@@ -169,6 +174,6 @@ function installLinks() {
 }
 
 module.exports = {
-    SERVER_NAME, PACKAGE_SPEC, WORKSPACE_VAR, CLIENTS, CLIENT_NAMES, FILE_CLIENTS,
+    SERVER_NAME, STABLE_TAG, PACKAGE_SPEC, WORKSPACE_VAR, CLIENTS, CLIENT_NAMES, FILE_CLIENTS,
     homeOf, npxEntry, serverEntry, excludeArgs, entryExcludes, serverFlags, entryAuditLog, isWindowsNpxWrapper, shellQuote, powershellQuote, installCommand, installLinks
 };

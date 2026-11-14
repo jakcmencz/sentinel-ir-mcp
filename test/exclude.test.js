@@ -267,17 +267,17 @@ test("server CLI refuses bad --exclude values before starting", () => {
 
 test("client entries and install commands carry the exclusions on every platform", () => {
     const ex = ["secrets", "*.min.js", "my docs"];
-    assert.deepEqual(serverEntry("/p", "linux", ex).args, ["-y", "sentinel-ir-mcp@0.5", "--exclude=secrets", "--exclude=*.min.js", "--exclude=my docs", "/p"]);
-    assert.deepEqual(serverEntry("C:\\p", "win32", ex).args.slice(0, 4), ["/c", "npx", "-y", "sentinel-ir-mcp@0.5"]);
-    assert.deepEqual(serverEntry("/p", "linux").args, ["-y", "sentinel-ir-mcp@0.5", "/p"]);
+    assert.deepEqual(serverEntry("/p", "linux", ex).args, ["-y", "sentinel-ir-mcp@stable-0.5", "--exclude=secrets", "--exclude=*.min.js", "--exclude=my docs", "/p"]);
+    assert.deepEqual(serverEntry("C:\\p", "win32", ex).args.slice(0, 4), ["/c", "npx", "-y", "sentinel-ir-mcp@stable-0.5"]);
+    assert.deepEqual(serverEntry("/p", "linux").args, ["-y", "sentinel-ir-mcp@stable-0.5", "/p"]);
     assert.deepEqual(entryExcludes(["-y", "x", "--exclude", "a", "--exclude=b", "/p"]), ["a", "b"]);
-    assert.deepEqual(entryFolders(["-y", "sentinel-ir-mcp@0.5", "--exclude", "a", "--exclude=b", "/p"]), ["/p"]);
+    assert.deepEqual(entryFolders(["-y", "sentinel-ir-mcp@stable-0.5", "--exclude", "a", "--exclude=b", "/p"]), ["/p"]);
     assert.equal(installCommand("claude-code", "/p", "linux", undefined, ex),
-        "claude mcp add --transport stdio sentinel-ir -- npx -y sentinel-ir-mcp@0.5 --exclude=secrets '--exclude=*.min.js' '--exclude=my docs' /p");
+        "claude mcp add --transport stdio sentinel-ir -- npx -y sentinel-ir-mcp@stable-0.5 --exclude=secrets '--exclude=*.min.js' '--exclude=my docs' /p");
     assert.equal(installCommand("claude-code", "C:\\p", "win32", "powershell", ["secrets"]),
-        "claude mcp add --transport stdio sentinel-ir '--' cmd /c npx -y sentinel-ir-mcp@0.5 '--exclude=secrets' 'C:\\p'");
+        "claude mcp add --transport stdio sentinel-ir '--' cmd /c npx -y sentinel-ir-mcp@stable-0.5 '--exclude=secrets' 'C:\\p'");
     assert.equal(installCommand("claude-code", "C:\\p", "win32", "cmd", ["*.min.js"]),
-        "claude mcp add --transport stdio sentinel-ir -- cmd /c npx -y sentinel-ir-mcp@0.5 \"--exclude=*.min.js\" \"C:\\p\"");
+        "claude mcp add --transport stdio sentinel-ir -- cmd /c npx -y sentinel-ir-mcp@stable-0.5 \"--exclude=*.min.js\" \"C:\\p\"");
     assert.match(installCommand("claude-code", "C:\\50%", "win32", "cmd", ["secrets"]), /add-json .*--exclude=secrets/);
     assert.match(installCommand("vscode", "/p", "linux", undefined, ["secrets"]), /"--exclude=secrets","\/p"/);
     assert.match(installCommand("vscode", "C:\\p", "win32", "cmd", ["secrets"]), /--exclude=secrets/);
@@ -314,12 +314,12 @@ test("setup --exclude writes the list; a new setup keeps it; --no-exclude remove
         assert.equal(r.code, 0, r.stderr);
         assert.match(r.stdout, /Excluded: secrets, \*\.min\.js/);
         assert.match(r.stdout, /4 file\(s\) or folder\(s\) excluded right now/);
-        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.5", "--exclude=secrets", "--exclude=*.min.js", sb.project]);
+        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@stable-0.5", "--exclude=secrets", "--exclude=*.min.js", sb.project]);
         const again = await cli(sb, "setup", ["--client", "windsurf", "--yes"]);
         assert.match(again.stdout, /Already set up/);
         assert.deepEqual(argsOf(sb).slice(2, 4), ["--exclude=secrets", "--exclude=*.min.js"]);
         assert.equal((await cli(sb, "setup", ["--client", "windsurf", "--no-exclude", "--yes"])).code, 0);
-        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.5", sb.project]);
+        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@stable-0.5", sb.project]);
         const both = await cli(sb, "setup", ["--client", "windsurf", "--no-exclude", "--exclude", "x", "--yes"]);
         assert.equal(both.code, 1);
         assert.match(both.stderr, /either/);
@@ -354,12 +354,12 @@ test("interactive setup asks once: answer, Enter keeps, - removes", async () => 
         assert.match(keep.stdout, /Already set up/);
         const clear = await cli(sb, "setup", ["--client", "windsurf"], { answers: ["-", "", "y"] });
         assert.equal(clear.code, 0);
-        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@0.5", sb.project]);
+        assert.deepEqual(argsOf(sb), ["-y", "sentinel-ir-mcp@stable-0.5", sb.project]);
         const invalid = await cli(sb, "setup", ["--client", "windsurf"], { answers: ["a|b"] });
         assert.equal(invalid.code, 1);
         assert.match(invalid.stderr, /not allowed/);
         const cmd = await cli(sb, "setup", ["--client", "claude-code"], { answers: ["secrets", ""] });
-        assert.match(cmd.stdout, /npx -y sentinel-ir-mcp@0\.5 --exclude=secrets /);
+        assert.match(cmd.stdout, /npx -y sentinel-ir-mcp@stable-0\.5 --exclude=secrets /);
     } finally {
         sb.cleanup();
     }

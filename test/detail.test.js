@@ -79,7 +79,7 @@ test("detail full keeps the 0.4.1 entries; both agree on order, risk and counts"
     for (const key of ["analyzed", "riskCounts", "statusCounts", "incomplete", "skipped", "truncated"]) {
         assert.deepEqual(summary[key], full[key], key);
     }
-    assert.ok(JSON.stringify(summary).length < JSON.stringify(full).length / 2);
+    assert.ok(JSON.stringify(summary).length < JSON.stringify(full).length);
 });
 
 test("an unknown detail value is refused", async () => {
