@@ -257,6 +257,26 @@ test("doctor warns about npx-cached copies whose sentinel-ir is too old and name
     } finally { sb.cleanup(); }
 });
 
+test("doctor: the npx cache check reads the sentinel-ir the server loads, nested or top-level", async () => {
+    const sb = sandbox();
+    try {
+        const cache = path.join(sb.base, "npm-cache");
+        const nest = (dir, v) => {
+            const d = path.join(dir, "node_modules", "sentinel-ir-mcp", "node_modules", "sentinel-ir");
+            fs.mkdirSync(d, { recursive: true });
+            fs.writeFileSync(path.join(d, "package.json"), JSON.stringify({ name: "sentinel-ir", version: v }));
+        };
+        const healthy = fakeNpxCopy(cache, "aaa1", "sentinel-ir-mcp@stable-0.5", "0.5.1", "0.4.0");
+        nest(healthy, "0.5.6");
+        const stale = fakeNpxCopy(cache, "bbb2", "sentinel-ir-mcp@0.5", "0.5.0", "0.6.0");
+        nest(stale, "0.5.2");
+        const { report } = await doctorJson(sb, [], { env: { npm_config_cache: cache } });
+        const warns = byId(report, "npx.cache");
+        assert.equal(warns.length, 1);
+        assert.ok(warns[0].message.includes(stale) && /sentinel-ir 0\.5\.2\)/.test(warns[0].message), warns[0].message);
+    } finally { sb.cleanup(); }
+});
+
 test("doctor: an empty or missing npx cache is ok", async () => {
     const sb = sandbox();
     try {

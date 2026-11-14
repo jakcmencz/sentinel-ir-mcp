@@ -71,7 +71,10 @@ function staleNpxCopies(cacheDir) {
         const dir = path.join(root, key);
         const mod = path.join(dir, "node_modules");
         if (!fs.existsSync(path.join(mod, "sentinel-ir-mcp", "package.json"))) continue;
-        const ir = readVersion(path.join(mod, "sentinel-ir", "package.json"));
+        // npm nests sentinel-ir under the server when another package in this
+        // npx folder needs a different sentinel-ir at the top level.
+        const nested = path.join(mod, "sentinel-ir-mcp", "node_modules", "sentinel-ir", "package.json");
+        const ir = readVersion(fs.existsSync(nested) ? nested : path.join(mod, "sentinel-ir", "package.json"));
         if (!olderThan(ir, IR_MIN)) continue;
         let spec = "sentinel-ir-mcp";
         try {
