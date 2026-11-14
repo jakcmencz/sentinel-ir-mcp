@@ -81,7 +81,7 @@ function nativeReal(p) {
 
 function relativeIn(file, root) {
     const rel = path.relative(root, file);
-    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel)) ? rel : null;
+    return rel === "" || (rel !== ".." && !rel.startsWith(".." + path.sep) && !path.isAbsolute(rel)) ? rel : null;
 }
 
 // True if `file` is excluded below any allowed root. Checked on the path as

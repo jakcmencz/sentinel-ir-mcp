@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write # MCP Registry login (GitHub OIDC)
 
 jobs:
   github_release:
@@ -47,3 +48,21 @@ jobs:
           HIGHEST="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)"
           if [ "$HIGHEST" = "$TAG" ]; then LATEST=--latest; else LATEST=--latest=false; fi
           gh release create "$TAG" --verify-tag --title "${TAG#v}" --notes-file notes.md "$LATEST"
+      # The official MCP Registry gets the tag's server.json once, for the
+      # highest tag only (a re-run or an older tag never adds or moves a version).
+      - name: publish to the MCP Registry
+        env:
+          PUBLISHER: https://github.com/modelcontextprotocol/registry/releases/download/v1.8.9/mcp-publisher_linux_amd64.tar.gz
+          PUBLISHER_SHA256: 4d527ca8f1ced0394c962dc925c2a4a4addef441cbefd62501c875e9481823a8
+        run: |
+          HIGHEST="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)"
+          if [ "$HIGHEST" != "$TAG" ]; then echo "$TAG is not the highest tag ($HIGHEST)"; exit 0; fi
+          git show "$TAG:server.json" > tag-server.json
+          NAME="$(node -p 'require("./tag-server.json").name')"
+          CODE="$(curl -s -o /dev/null -w '%{http_code}' "https://registry.modelcontextprotocol.io/v0/servers/${NAME/\//%2F}/versions/${TAG#v}")"
+          if [ "$CODE" = 200 ]; then echo "$NAME ${TAG#v} is in the MCP Registry"; exit 0; fi
+          curl -sSfL -o mcp-publisher.tar.gz "$PUBLISHER"
+          echo "$PUBLISHER_SHA256  mcp-publisher.tar.gz" | sha256sum -c -
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish tag-server.json

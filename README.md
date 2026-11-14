@@ -28,6 +28,14 @@ of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.5.6** fixes what an audit of 0.5.5 found: `guide` names Python and Rust
+too (it still said JavaScript and TypeScript only); `analyze_file` reads files
+in a folder whose name starts with `..` (such as `..cache/x.js`) instead of
+calling them outside the allowed folders; the lock file takes
+`@modelcontextprotocol/sdk` 1.32.2 and `hono` 4.13.18 (`npm audit`: 0
+vulnerabilities); and the GitHub release workflow also publishes `server.json`
+to the MCP Registry.
+
 **0.5.5** fixes the update check in `doctor`: it goes through the proxy npm
 would use (`npm_config_https_proxy`/`npm_config_proxy`, `HTTPS_PROXY`/`HTTP_PROXY`,
 `NO_PROXY`), follows up to 3 registry redirects (never from https to http), and
@@ -587,9 +595,10 @@ large-file size probe runs on release tags only.
 
 Release: bump `version` in `package.json` and both `version` fields in
 `server.json` (a test checks they match), push a protected tag `vX.Y.Z`;
-GitLab CI tests and publishes to npm with provenance. Then publish the same
-`server.json` to the MCP Registry: `mcp-publisher login github` and
-`mcp-publisher publish`.
+GitLab CI tests and publishes to npm with provenance. The GitLab mirror pushes
+the tag to GitHub, where `.github/workflows/release.yml` waits for npm, creates
+the GitHub release and publishes the tag's `server.json` to the MCP Registry
+(by hand: `mcp-publisher login github` and `mcp-publisher publish`).
 
 ## Contributing
 
