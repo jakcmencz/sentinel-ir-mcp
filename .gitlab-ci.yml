@@ -41,10 +41,10 @@ publish:
     # Never move the tag back: a retried older release leaves a newer patch on it.
     - TAG="$(node -p 'require("./src/clients").STABLE_TAG')"
     - CUR="$(npm view "sentinel-ir-mcp@$TAG" version 2>/dev/null || true)"
-    - if [ -z "$CUR" ] || node -e 'process.exit(require("./src/doctor").olderThan(process.argv[1], process.argv[2]) ? 0 : 1)' "$CUR" "$V"; then npm dist-tag add "sentinel-ir-mcp@$V" "$TAG"; fi
+    - if [ -z "$CUR" ] || node -e 'process.exit(+!require("./src/doctor").olderThan(process.argv[1], process.argv[2]))' "$CUR" "$V"; then npm dist-tag add "sentinel-ir-mcp@$V" "$TAG"; fi
     - NOW="$(npm view "sentinel-ir-mcp@$TAG" version)"
     - echo "$TAG -> $NOW"
-    - node -e 'process.exit(require("./src/doctor").olderThan(process.argv[1], process.argv[2]) ? 1 : 0)' "$NOW" "$V"
+    - node -e 'process.exit(+require("./src/doctor").olderThan(process.argv[1], process.argv[2]))' "$NOW" "$V"
 
 # Real Windows: the packed package, setup/doctor against the real %APPDATA%
 # and home folder, and how `npx -y sentinel-ir-mcp@0.2` starts. No client apps.
