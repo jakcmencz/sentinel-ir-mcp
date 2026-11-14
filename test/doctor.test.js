@@ -324,7 +324,7 @@ test("doctor: current, offline, missing tag and no update check", async () => {
         const status = async (fetch) => byId((await doctorJson(sb, [], { io: fetch ? { fetchDistTags: fetch } : {} })).report, "package.update").map((c) => [c.status, c.message]);
         assert.deepEqual(await status(async () => ({ [STABLE]: version })), [["ok", `sentinel-ir-mcp ${version} is the newest ${STABLE} on npm`]]);
         assert.deepEqual(await status(async () => ({ [STABLE]: "0.0.1" })), [["ok", `sentinel-ir-mcp ${version} is newer than npm's ${STABLE} (0.0.1)`]]);
-        assert.match((await status(async () => null))[0].join(" "), /^skip Could not reach the npm registry/);
+        assert.match((await status(async () => null))[0].join(" "), /^skip No usable answer from the npm registry/);
         assert.match((await status(async () => ({ latest: "9.9.9" })))[0].join(" "), /^skip npm has no stable-/);
         assert.match((await status(async () => JSON.parse('{"__proto__":{"stable-0.5":"9.9.9"}}')))[0].join(" "), /^skip npm has no stable-/);
         assert.deepEqual(await status(async () => ({ [STABLE]: "0.5.5-beta.1" })), [["skip", `npm's ${STABLE} tag points to "0.5.5-beta.1", not a release version; no update check`]]);
@@ -430,7 +430,8 @@ test("fetchDistTags follows up to 3 redirects, never from https to http", async 
 
 test("fetchDistTags goes through the proxy npm would use", async () => {
     const seen = [];
-    const registry = http.createServer((req, res) => { res.writeHead(200); res.end(JSON.stringify(TAGS)); });
+    let lastAuth;
+    const registry = http.createServer((req, res) => { lastAuth = req.headers.authorization; res.writeHead(200); res.end(JSON.stringify(TAGS)); });
     const rport = await listen(registry);
     const cert = tlsCert();
     const tlsRegistry = cert && https.createServer(cert, (req, res) => { if (req.url.startsWith("/hang/")) return; res.writeHead(200); res.end(JSON.stringify({ ...TAGS, tls: "1" })); });
@@ -439,7 +440,7 @@ test("fetchDistTags goes through the proxy npm would use", async () => {
         seen.push(["GET", req.url, req.headers["proxy-authorization"] || ""]);
         if (req.url.includes("deny")) { res.writeHead(407); return res.end(); }
         const u = new URL(req.url);
-        http.get({ host: u.hostname, port: u.port, path: u.pathname }, (r) => { res.writeHead(r.statusCode); r.pipe(res); });
+        http.get({ host: u.hostname, port: u.port, path: u.pathname, headers: { authorization: req.headers.authorization || "" } }, (r) => { res.writeHead(r.statusCode); r.pipe(res); });
     });
     let tunnels = 0;
     proxy.on("connect", (req, socket) => {
@@ -459,6 +460,9 @@ test("fetchDistTags goes through the proxy npm would use", async () => {
         assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, npm_config_proxy: `http://u%40x:p%3Aw@127.0.0.1:${pport}`, HTTP_PROXY: "http://127.0.0.1:1" }), TAGS);
         assert.equal(seen.pop()[2], "Basic " + Buffer.from("u@x:p:w").toString("base64"), "npm config wins, credentials decoded");
         assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, http_proxy: `127.0.0.1:${pport}` }), TAGS, "proxy without a scheme");
+        assert.deepEqual(await fetchDistTags({ npm_config_registry: `http://tok:s%40cret@127.0.0.1:${rport}/`, HTTP_PROXY: P }), TAGS);
+        assert.deepEqual(seen.pop(), ["GET", `${reg}-/package/sentinel-ir-mcp/dist-tags`, ""], "registry login is not in the proxied request line");
+        assert.equal(lastAuth, "Basic " + Buffer.from("tok:s@cret").toString("base64"), "registry login sent as Authorization");
         seen.length = 0;
         assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: P, NO_PROXY: "example.com, 127.0.0.1" }), TAGS);
         assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: P, no_proxy: "*" }), TAGS);

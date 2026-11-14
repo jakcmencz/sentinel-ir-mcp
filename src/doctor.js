@@ -98,7 +98,10 @@ function openGet(url, env, tls, open, onResponse, onFail) {
         : {};
     const target = { host: proxy.hostname.replace(/^\[|\]$/g, ""), port: proxy.port || (proxy.protocol === "https:" ? 443 : 80) };
     if (url.protocol === "http:") {
-        const req = proxyLib.get({ ...target, path: url.href, headers: { ...headers, ...auth, host: url.host } }, onResponse);
+        const bare = new URL(url.href);
+        bare.username = bare.password = "";
+        const login = url.username ? { authorization: "Basic " + Buffer.from(`${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`).toString("base64") } : {};
+        const req = proxyLib.get({ ...target, path: bare.href, headers: { ...headers, ...login, ...auth, host: bare.host } }, onResponse);
         req.on("error", onFail);
         open.push(req);
         return;
@@ -172,7 +175,7 @@ async function checkUpdate(io, add) {
     const tag = m ? `stable-${m[1]}.${m[2]}` : "latest";
     const tags = await io.fetchDistTags(io.env);
     if (!tags) {
-        add("skip", "package.update", "Could not reach the npm registry to look for a newer sentinel-ir-mcp (offline or blocked)");
+        add("skip", "package.update", "No usable answer from the npm registry about a newer sentinel-ir-mcp (offline, blocked or an unexpected reply)");
         return;
     }
     const newest = Object.prototype.hasOwnProperty.call(tags, tag) ? tags[tag] : undefined;
