@@ -45,6 +45,10 @@
     "type": "git",
     "url": "git+https://gitlab.com/jakubrojicek11/sentinel-ir-mcp.git"
   },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/jakcmencz"
+  },
   "homepage": "https://gitlab.com/jakubrojicek11/sentinel-ir-mcp#readme",
   "bugs": {
     "url": "https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/issues"
