@@ -437,7 +437,7 @@ test("fetchDistTags goes through the proxy npm would use", async () => {
     proxy.on("connect", (req, socket) => {
         seen.push(["CONNECT", req.url, req.headers["proxy-authorization"] || ""]);
         if (req.url.startsWith("deny")) { socket.end("HTTP/1.1 403 Forbidden\r\n\r\n"); return; }
-        const [host, port] = req.url.split(":");
+        const [host, port] = req.url === "localhost:1" ? ["localhost", tport] : req.url.split(":");
         const up = require("net").connect(+port, host === "localhost" ? "127.0.0.1" : host, () => { socket.write("HTTP/1.1 200 OK\r\n\r\n"); up.pipe(socket); socket.pipe(up); });
         up.on("error", () => socket.destroy());
     });
@@ -460,6 +460,7 @@ test("fetchDistTags goes through the proxy npm would use", async () => {
             const treg = `https://localhost:${tport}/`;
             assert.deepEqual(await fetchDistTags({ npm_config_registry: treg, HTTPS_PROXY: P, HTTP_PROXY: "http://127.0.0.1:1" }, 3000, { ca: cert.cert }), { ...TAGS, tls: "1" });
             assert.deepEqual(seen.pop(), ["CONNECT", `localhost:${tport}`, ""]);
+            assert.deepEqual(await fetchDistTags({ npm_config_registry: "https://localhost:1/", HTTPS_PROXY: P }, 3000, { ca: cert.cert }), { ...TAGS, tls: "1" }, "request goes through the tunnel, not direct");
             assert.deepEqual(await fetchDistTags({ npm_config_registry: treg, HTTP_PROXY: P }, 3000, { ca: cert.cert }), { ...TAGS, tls: "1" }, "https falls back to HTTP_PROXY");
             assert.equal(await fetchDistTags({ npm_config_registry: treg, HTTPS_PROXY: P }), null, "certificate still checked through the tunnel");
             assert.equal(await fetchDistTags({ npm_config_registry: `https://deny:${tport}/`, HTTPS_PROXY: P }), null, "CONNECT refused");

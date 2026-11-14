@@ -106,7 +106,7 @@ function openGet(url, env, tls, onResponse, onFail) {
     connect.on("connect", (res, socket) => {
         if (res.statusCode !== 200) { socket.destroy(); onFail(); return; }
         const req = https.get(url, {
-            headers, ...tls, agent: false,
+            headers, ...tls,
             createConnection: () => require("tls").connect({ socket, servername: url.hostname.replace(/^\[|\]$/g, ""), ...tls })
         }, onResponse);
         req.on("error", onFail);
