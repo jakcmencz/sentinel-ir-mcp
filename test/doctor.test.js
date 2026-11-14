@@ -8,7 +8,7 @@ const path = require("path");
 const { runCommand } = require("../src/cli");
 const http = require("http");
 const https = require("https");
-const { entryFolders, fetchDistTags, installKind, proxyFor } = require("../src/doctor");
+const { entryFolders, fetchDistTags, installKind, proxyFor, globalDirs, IR_MIN } = require("../src/doctor");
 const { version } = require("../package.json");
 
 function sandbox() {
@@ -28,7 +28,7 @@ async function run(sb, command, argv, extra = {}) {
         stdout: { write: (s) => { stdout += s; } },
         stderr: { write: (s) => { stderr += s; } },
         env: { HOME: sb.home, ...(extra.env || {}) }, platform: extra.platform || "linux", cwd: extra.cwd || sb.project, isTTY: false, prompt: null,
-        now: () => Date.UTC(2026, 9, 18), nodeVersion: extra.nodeVersion,
+        now: () => Date.UTC(2026, 9, 18), nodeVersion: extra.nodeVersion, execPath: path.join(sb.base, "node", "bin", "node"),
         ...(extra.io || {})
     };
     const code = await runCommand(command, argv, io);
@@ -358,6 +358,33 @@ test("installKind tells npx copies, global installs and other folders apart", ()
     assert.equal(installKind("/home/a/proj/node_modules/sentinel-ir-mcp").kind, "other");
 });
 
+test("doctor finds an old global install that bare npx starts, also under a Windows prefix without lib", async () => {
+    const sb = sandbox();
+    try {
+        const put = (dir, mcp, ir) => {
+            fs.mkdirSync(path.join(dir, "node_modules", "sentinel-ir"), { recursive: true });
+            fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ version: mcp }));
+            fs.writeFileSync(path.join(dir, "node_modules", "sentinel-ir", "package.json"), JSON.stringify({ version: ir }));
+        };
+        const prefix = path.join(sb.base, "prefix");
+        put(path.join(prefix, "lib", "node_modules", "sentinel-ir-mcp"), "0.3.0", "0.3.1");
+        const { code, report } = await doctorJson(sb, [], { env: { npm_config_prefix: prefix } });
+        const [g] = byId(report, "package.global");
+        assert.equal(g.status, "warn");
+        assert.match(g.message, /sentinel-ir-mcp 0\.3\.0 \(sentinel-ir 0\.3\.1\) is at .*prefix/);
+        assert.match(g.fix, /npm install -g sentinel-ir-mcp@stable-/);
+        assert.equal(code, 0);
+        put(path.join(prefix, "lib", "node_modules", "sentinel-ir-mcp"), version, IR_MIN);
+        assert.deepEqual(byId((await doctorJson(sb, [], { env: { npm_config_prefix: prefix } })).report, "package.global"), [], "current global copy");
+        assert.deepEqual(byId((await doctorJson(sb, [])).report, "package.global"), [], "no global copy");
+        const nvm = "C:\\nvm4w\\nodejs";
+        assert.equal(installKind(`${nvm}\\node_modules\\sentinel-ir-mcp`, globalDirs({}, "win32", `${nvm}\\node.exe`)).kind, "global");
+        assert.deepEqual(globalDirs({ APPDATA: "C:\\U\\AppData\\Roaming" }, "win32", `${nvm}\\node.exe`),
+            ["C:\\U\\AppData\\Roaming\\npm\\node_modules\\sentinel-ir-mcp", `${nvm}\\node_modules\\sentinel-ir-mcp`]);
+        assert.deepEqual(globalDirs({}, "linux", "/usr/bin/node"), ["/usr/lib/node_modules/sentinel-ir-mcp"]);
+    } finally { sb.cleanup(); }
+});
+
 test("proxyFor: NO_PROXY with IPv6, ports and trailing dots; unusable proxies are not bypassed", () => {
     const P = "http://p:3128";
     const via = (u, env) => proxyFor(new URL(u), { HTTPS_PROXY: P, HTTP_PROXY: P, ...env });
@@ -368,6 +395,7 @@ test("proxyFor: NO_PROXY with IPv6, ports and trailing dots; unusable proxies ar
     assert.equal(via("https://[::2]/", { NO_PROXY: "::1" }).href, "http://p:3128/");
     for (const bad of ["socks5://p:1080", "http://[bad"]) assert.equal(via("https://registry.npmjs.org/", { HTTPS_PROXY: bad }), false, bad);
     assert.equal(proxyFor(new URL("https://registry.npmjs.org/"), {}), null);
+    assert.equal(proxyFor(new URL("http://registry.internal/"), { HTTPS_PROXY: P }).href, "http://p:3128/", "npm uses https-proxy for http registries too");
 });
 
 test("fetchDistTags reads the registry from npm_config_registry and gives up on bad answers", async () => {

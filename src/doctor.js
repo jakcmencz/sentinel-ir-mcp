@@ -55,11 +55,22 @@ function npxCopyDir(dir = PACKAGE_DIR) {
     return m ? m[1] : null;
 }
 
+// Where npm installs a global sentinel-ir-mcp: under npm's prefix setting, %APPDATA%\\npm, or next to node.
+function globalDirs(env, platform, execPath) {
+    const p = platform === "win32" ? path.win32 : path.posix;
+    const prefixes = [env.npm_config_prefix, platform === "win32" && env.APPDATA ? p.join(env.APPDATA, "npm") : null,
+        platform === "win32" ? p.dirname(execPath) : p.dirname(p.dirname(execPath))];
+    const dirs = prefixes.filter(Boolean).map((x) => p.join(x, ...(platform === "win32" ? [] : ["lib"]), "node_modules", "sentinel-ir-mcp"));
+    return [...new Set(dirs)];
+}
+
+const sameDir = (a, b) => a.replace(/[\\/]+$/, "").toLowerCase() === b.replace(/[\\/]+$/, "").toLowerCase();
+
 // Where the package in dir is installed: an npx cache copy, a global install or elsewhere.
-function installKind(dir) {
+function installKind(dir, globals = []) {
     const npx = npxCopyDir(dir);
     if (npx) return { kind: "npx", dir: npx, key: /[^\\/]+$/.exec(npx)[0] };
-    if (/[\\/](lib|npm)[\\/]node_modules[\\/]sentinel-ir-mcp[\\/]?$/i.test(dir)) return { kind: "global", dir };
+    if (/[\\/](lib|npm)[\\/]node_modules[\\/]sentinel-ir-mcp[\\/]?$/i.test(dir) || globals.some((g) => sameDir(g, dir))) return { kind: "global", dir };
     return { kind: "other", dir };
 }
 
@@ -67,7 +78,7 @@ const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 
 const unescapeLogin = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
 
-// The proxy npm would use for url (npm config, then HTTPS_PROXY/HTTP_PROXY), null for none,
+// The proxy npm would use for url (https-proxy, then proxy; npm config before env), null for none,
 // false for a proxy setting doctor cannot use (it then skips instead of going direct).
 function proxyFor(url, env) {
     const noProxy = env.npm_config_noproxy || env.NO_PROXY || env.no_proxy || "";
@@ -77,9 +88,8 @@ function proxyFor(url, env) {
         const r = bare.replace(/^\*?\.?/, "").replace(/\.$/, "").toLowerCase();
         if (rule === "*" || host === r || host.endsWith("." + r)) return null;
     }
-    const raw = url.protocol === "https:"
-        ? env.npm_config_https_proxy || env.HTTPS_PROXY || env.https_proxy || env.npm_config_proxy || env.HTTP_PROXY || env.http_proxy
-        : env.npm_config_proxy || env.HTTP_PROXY || env.http_proxy;
+    // npm uses its https-proxy for http registries too.
+    const raw = env.npm_config_https_proxy || env.HTTPS_PROXY || env.https_proxy || env.npm_config_proxy || env.HTTP_PROXY || env.http_proxy;
     if (!raw) return null;
     try {
         const p = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`);
@@ -203,7 +213,7 @@ async function checkUpdate(io, add) {
         return;
     }
     const spec = `sentinel-ir-mcp@${tag}`;
-    const from = installKind(io.packageDir || PACKAGE_DIR);
+    const from = installKind(io.packageDir || PACKAGE_DIR, globalDirs(io.env, io.platform, io.execPath || process.execPath));
     const where = { npx: `the npx cache (${from.dir})`, global: `a global install (${from.dir})`, other: from.dir }[from.kind];
     const fix = {
         npx: `Close the client, delete that folder (npm 11: npm cache npx rm ${from.key}), then run: npx -y ${spec} setup`,
@@ -249,6 +259,20 @@ function staleNpxCopies(cacheDir) {
         stale.push({ key, dir, spec, mcp: readVersion(path.join(mod, "sentinel-ir-mcp", "package.json")), ir });
     }
     return stale;
+}
+
+// A global install other than this copy that is older or runs an old sentinel-ir:
+// bare `npx sentinel-ir-mcp` and client entries without a version start it.
+function checkGlobalInstall(io, add) {
+    const running = io.packageDir || PACKAGE_DIR;
+    for (const dir of globalDirs(io.env, io.platform, io.execPath || process.execPath)) {
+        if (sameDir(dir, running) || !fs.existsSync(path.join(dir, "package.json"))) continue;
+        const mcp = readVersion(path.join(dir, "package.json"));
+        const ir = readVersion(path.join(dir, "node_modules", "sentinel-ir", "package.json"));
+        if (!olderThan(mcp, version) && !olderThan(ir, IR_MIN)) continue;
+        add("warn", "package.global", `A global install of sentinel-ir-mcp ${mcp} (sentinel-ir ${ir}) is at ${dir}; bare npx sentinel-ir-mcp and client entries without a version start it`,
+            `Run: npm install -g ${PACKAGE_SPEC} (or npm uninstall -g sentinel-ir-mcp)`);
+    }
 }
 
 function checkNpxCache(env, platform, add) {
@@ -443,6 +467,7 @@ async function runDoctor(opts, io) {
             npxCopyDir() ? `Close the client, delete ${npxCopyDir()}, then run: npx -y ${PACKAGE_SPEC} setup` : `Reinstall it so that npm installs sentinel-ir ${dependencies["sentinel-ir"]}.`);
     } else add("ok", "package", `sentinel-ir-mcp ${version}, sentinel-ir ${ir}`);
     await checkUpdate(io, add);
+    checkGlobalInstall(io, add);
     checkNpxCache(io.env, io.platform, add);
 
     const project = path.resolve(io.cwd, opts.project || ".");
@@ -494,4 +519,4 @@ async function runDoctor(opts, io) {
     return failed ? 1 : 0;
 }
 
-module.exports = { runDoctor, entryFolders, olderThan, staleNpxCopies, fetchDistTags, proxyFor, installKind, IR_MIN };
+module.exports = { runDoctor, entryFolders, olderThan, staleNpxCopies, fetchDistTags, proxyFor, installKind, globalDirs, IR_MIN };
