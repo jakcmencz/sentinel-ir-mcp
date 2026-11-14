@@ -4,8 +4,8 @@ const fs = require("fs");
 const path = require("path");
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
-const { version } = require("../package.json");
-const { SERVER_NAME, PACKAGE_SPEC, WORKSPACE_VAR, CLIENTS, FILE_CLIENTS, isWindowsNpxWrapper, entryExcludes, entryAuditLog, serverFlags } = require("./clients");
+const { version, dependencies } = require("../package.json");
+const { SERVER_NAME, PACKAGE_SPEC, homeOf, WORKSPACE_VAR, CLIENTS, FILE_CLIENTS, isWindowsNpxWrapper, entryExcludes, entryAuditLog, serverFlags } = require("./clients");
 const { AuditLogError, defaultAuditDir, normalizeAuditDir, assertOutsideProjects, logFiles, dayName, createAuditLog } = require("./auditLog");
 const { readConfig } = require("./setup");
 const { createExcluder, ExcludeError } = require("./exclude");
@@ -16,12 +16,95 @@ const BIN = path.join(__dirname, "..", "bin", "sentinel-ir-mcp.js");
 const EXPECTED_TOOLS = ["analyze_code", "analyze_directory", "analyze_file"];
 const VALUE_OPTIONS = new Set(["--max-file-bytes", "--max-files", "--time-budget-ms", "--exclude"]);
 
+const IR_MIN = dependencies["sentinel-ir"].replace(/^[\^~>=]+/, "");
+
 function irVersion() {
     try {
         return require("sentinel-ir/package.json").version;
     } catch {
         return "unknown";
     }
+}
+
+// true when version a is older than b ("unknown" or junk counts as older).
+function olderThan(a, b) {
+    const pa = /^(\d+)\.(\d+)\.(\d+)/.exec(String(a));
+    if (!pa) return true;
+    const pb = b.split(".").map(Number);
+    for (let i = 0; i < 3; i++) if (Number(pa[i + 1]) !== pb[i]) return Number(pa[i + 1]) < pb[i];
+    return false;
+}
+
+function readVersion(file) {
+    try {
+        const v = JSON.parse(fs.readFileSync(file, "utf8")).version;
+        return typeof v === "string" ? v : "unknown";
+    } catch {
+        return "unknown";
+    }
+}
+
+// The _npx/<key> folder this copy was started from, or null.
+function npxCopyDir() {
+    const m = new RegExp(`^(.*\\${path.sep}_npx\\${path.sep}[^\\${path.sep}]+)\\${path.sep}`).exec(__dirname);
+    return m ? m[1] : null;
+}
+
+// npm's cache folder: the one this copy was started from by npx, else npm's default.
+function npmCacheDir(env, platform) {
+    const marker = `${path.sep}_npx${path.sep}`;
+    const i = __dirname.lastIndexOf(marker);
+    if (i > 0) return __dirname.slice(0, i);
+    if (env.npm_config_cache) return env.npm_config_cache;
+    if (platform === "win32") return path.join(env.LOCALAPPDATA || path.join(homeOf(env), "AppData", "Local"), "npm-cache");
+    return path.join(homeOf(env), ".npm");
+}
+
+// Copies of sentinel-ir-mcp that npx cached and whose sentinel-ir is older
+// than this release needs. npx keeps starting such a copy for its spec.
+function staleNpxCopies(cacheDir) {
+    const root = path.join(cacheDir, "_npx");
+    let keys;
+    try { keys = fs.readdirSync(root); } catch { return []; }
+    const stale = [];
+    for (const key of keys.sort()) {
+        const dir = path.join(root, key);
+        const mod = path.join(dir, "node_modules");
+        if (!fs.existsSync(path.join(mod, "sentinel-ir-mcp", "package.json"))) continue;
+        // npm nests sentinel-ir under the server when another package in this
+        // npx folder needs a different sentinel-ir at the top level.
+        const nested = path.join(mod, "sentinel-ir-mcp", "node_modules", "sentinel-ir", "package.json");
+        const ir = readVersion(fs.existsSync(nested) ? nested : path.join(mod, "sentinel-ir", "package.json"));
+        if (!olderThan(ir, IR_MIN)) continue;
+        let spec = "sentinel-ir-mcp";
+        try {
+            const pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+            const named = pkg._npx && Array.isArray(pkg._npx.packages) && pkg._npx.packages.find((p) => /^sentinel-ir-mcp(@|$)/.test(p));
+            if (named) spec = named;
+            else if (pkg.dependencies && typeof pkg.dependencies["sentinel-ir-mcp"] === "string") spec = `sentinel-ir-mcp@${pkg.dependencies["sentinel-ir-mcp"]}`;
+        } catch { /* keep the bare name */ }
+        stale.push({ key, dir, spec, mcp: readVersion(path.join(mod, "sentinel-ir-mcp", "package.json")), ir });
+    }
+    return stale;
+}
+
+function checkNpxCache(env, platform, add) {
+    const cacheDir = npmCacheDir(env, platform);
+    const stale = staleNpxCopies(cacheDir);
+    if (stale.length === 0) {
+        add("ok", "npx.cache", `npx cache (${path.join(cacheDir, "_npx")}): no copy with sentinel-ir older than ${IR_MIN}`);
+        return;
+    }
+    for (const c of stale) {
+        add("warn", "npx.cache", `npx keeps starting a cached ${c.spec} (sentinel-ir-mcp ${c.mcp}, sentinel-ir ${c.ir}) from ${c.dir}; sentinel-ir older than ${IR_MIN} misses security fixes`,
+            `Close the client, delete that folder (npm 11: npm cache npx rm ${c.key}), then run: npx -y ${PACKAGE_SPEC} setup`);
+    }
+}
+
+// The version part of the configured sentinel-ir-mcp argument, "" when none.
+function entrySpec(args) {
+    const a = args.find((x) => typeof x === "string" && /^sentinel-ir-mcp(@|$)/.test(x));
+    return a ? a.slice("sentinel-ir-mcp@".length) : "";
 }
 
 // Folders the configured entry passes to the server (arguments after the package).
@@ -84,8 +167,10 @@ function checkConfig(client, file, explicit, project, add, platform, env) {
     const runs = `${label}: "${SERVER_NAME}" runs ${entry.command} ${args.join(" ")}`;
     if (entry.command === "npx" && platform === "win32") {
         add("warn", `${client}.entry`, runs, `On Windows a client may not find "npx" without a shell. Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
-    } else if (args.some(a => /^sentinel-ir-mcp@0\.[0-4](\.|$)/.test(a))) {
+    } else if (/^[\^~=v]*0\.[0-4](\.|$)/.test(entrySpec(args))) {
         add("warn", `${client}.entry`, runs, `This entry stays on an older version without Rust support. Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
+    } else if (/^[\^~=v<>]*\d/.test(entrySpec(args))) {
+        add("warn", `${client}.entry`, runs, `npx keeps starting the copy it downloaded first for a version or range and misses later fixes. Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
     } else if (entry.command === "npx" || isWindowsNpxWrapper(entry)) {
         add("ok", `${client}.entry`, runs);
     } else {
@@ -189,7 +274,12 @@ async function runDoctor(opts, io) {
     const nodeVersion = io.nodeVersion || process.versions.node;
     if (Number(nodeVersion.split(".")[0]) >= 20) add("ok", "node", `Node.js v${nodeVersion}`);
     else add("fail", "node", `Node.js v${nodeVersion} is too old`, "Install Node.js 20 or newer.");
-    add("ok", "package", `sentinel-ir-mcp ${version}, sentinel-ir ${irVersion()}`);
+    const ir = irVersion();
+    if (olderThan(ir, IR_MIN)) {
+        add("fail", "package", `sentinel-ir-mcp ${version} runs sentinel-ir ${ir}, needs ${IR_MIN} or newer`,
+            npxCopyDir() ? `Close the client, delete ${npxCopyDir()}, then run: npx -y ${PACKAGE_SPEC} setup` : `Reinstall it so that npm installs sentinel-ir ${dependencies["sentinel-ir"]}.`);
+    } else add("ok", "package", `sentinel-ir-mcp ${version}, sentinel-ir ${ir}`);
+    checkNpxCache(io.env, io.platform, add);
 
     const project = path.resolve(io.cwd, opts.project || ".");
     if (opts.client && !Object.prototype.hasOwnProperty.call(CLIENTS, opts.client)) {
@@ -238,4 +328,4 @@ async function runDoctor(opts, io) {
     return failed ? 1 : 0;
 }
 
-module.exports = { runDoctor, entryFolders };
+module.exports = { runDoctor, entryFolders, olderThan, staleNpxCopies, IR_MIN };

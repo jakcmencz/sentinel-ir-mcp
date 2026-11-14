@@ -45,7 +45,7 @@ test("doctor after setup: real handshake, exactly three tools, analyze_directory
         assert.equal(code, 0, JSON.stringify(report, null, 2));
         assert.equal(report.ok, true);
         assert.equal(byId(report, "node")[0].status, "ok");
-        assert.match(byId(report, "windsurf.entry")[0].message, /sentinel-ir-mcp@0\.5/);
+        assert.match(byId(report, "windsurf.entry")[0].message, /sentinel-ir-mcp@stable-0\.5/);
         assert.equal(byId(report, "mcp.handshake")[0].status, "ok");
         assert.equal(byId(report, "mcp.tools")[0].message, "Tools: analyze_code, analyze_directory, analyze_file");
         assert.ok(byId(report, "mcp.call")[0].message.includes(sb.project), "uses the folder from the config, not the cwd");
@@ -80,7 +80,7 @@ test("doctor exits 1 with a fix for a missing config, a missing entry, invalid J
         await expectFail("windsurf.config", /not valid JSON/);
         fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "rm", args: ["-rf", "/"] } } }));
         await expectFail("windsurf.entry", /does not start sentinel-ir-mcp/);
-        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@0.5", path.join(sb.base, "gone")] } } }));
+        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@stable-0.5", path.join(sb.base, "gone")] } } }));
         await expectFail("windsurf.folder", /does not exist/);
     } finally { sb.cleanup(); }
 });
@@ -116,7 +116,7 @@ test("doctor without a client checks configs it finds and the project folder; te
 });
 
 test("entryFolders skips flags and their values", () => {
-    assert.deepEqual(entryFolders(["-y", "sentinel-ir-mcp@0.5", "--max-files", "5", "/a", "--max-file-bytes=9", "/b"]), ["/a", "/b"]);
+    assert.deepEqual(entryFolders(["-y", "sentinel-ir-mcp@stable-0.5", "--max-files", "5", "/a", "--max-file-bytes=9", "/b"]), ["/a", "/b"]);
     assert.deepEqual(entryFolders(["-y", "sentinel-ir-mcp"]), []);
     assert.equal(entryFolders(["-y", "other-server"]), null);
 });
@@ -137,11 +137,11 @@ test("doctor on Windows (simulated): cmd /c npx is ok, plain npx gets a warning"
         const file = path.join(appdata, "Claude", "claude_desktop_config.json");
         fs.mkdirSync(path.dirname(file), { recursive: true });
         const win = { platform: "win32", env: { APPDATA: appdata } };
-        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.5", sb.project] } } }));
+        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@stable-0.5", sb.project] } } }));
         let { code, report } = await doctorJson(sb, ["--client", "claude-desktop"], win);
         assert.equal(code, 0);
         assert.equal(byId(report, "claude-desktop.entry")[0].status, "ok");
-        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@0.5", sb.project] } } }));
+        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@stable-0.5", sb.project] } } }));
         ({ code, report } = await doctorJson(sb, ["--client", "claude-desktop"], win));
         assert.equal(code, 0);
         assert.equal(byId(report, "claude-desktop.entry")[0].status, "warn");
@@ -154,7 +154,7 @@ test("doctor reads an old ~/.codeium Windsurf config and warns that it moved", a
     try {
         const legacy = path.join(sb.home, ".codeium", "windsurf", "mcp_config.json");
         fs.mkdirSync(path.dirname(legacy), { recursive: true });
-        fs.writeFileSync(legacy, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@0.5", sb.project] } } }));
+        fs.writeFileSync(legacy, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@stable-0.5", sb.project] } } }));
         const { code, report } = await doctorJson(sb, ["--client", "windsurf"]);
         assert.equal(code, 0);
         assert.equal(byId(report, "windsurf.location")[0].status, "warn");
@@ -163,17 +163,128 @@ test("doctor reads an old ~/.codeium Windsurf config and warns that it moved", a
     } finally { sb.cleanup(); }
 });
 
-test("doctor warns about entries pinned to 0.4 or older and accepts 0.5", async () => {
+test("doctor warns about entries pinned to a version or range and accepts the stable tag", async () => {
     const sb = sandbox();
     try {
         const file = path.join(sb.home, ".cursor", "mcp.json");
         fs.mkdirSync(path.dirname(file), { recursive: true });
-        for (const [spec, status] of [["sentinel-ir-mcp@0.2", "warn"], ["sentinel-ir-mcp@0.3", "warn"], ["sentinel-ir-mcp@0.3.0", "warn"], ["sentinel-ir-mcp@0.4", "warn"], ["sentinel-ir-mcp@0.4.6", "warn"], ["sentinel-ir-mcp@0.5", "ok"]]) {
+        const rust = /without Rust support/;
+        const cached = /keeps starting the copy it downloaded first/;
+        for (const [spec, status, why] of [
+            ["sentinel-ir-mcp@0.2", "warn", rust], ["sentinel-ir-mcp@0.3", "warn", rust], ["sentinel-ir-mcp@0.3.0", "warn", rust],
+            ["sentinel-ir-mcp@0.4", "warn", rust], ["sentinel-ir-mcp@0.4.6", "warn", rust], ["sentinel-ir-mcp@^0.4.0", "warn", rust],
+            ["sentinel-ir-mcp@0.5", "warn", cached], ["sentinel-ir-mcp@0.5.0", "warn", cached], ["sentinel-ir-mcp@~0.5.1", "warn", cached],
+            ["sentinel-ir-mcp@>=0.5.0", "warn", cached], ["sentinel-ir-mcp@1", "warn", cached],
+            ["sentinel-ir-mcp@stable-0.5", "ok"], ["sentinel-ir-mcp@latest", "ok"], ["sentinel-ir-mcp", "ok"]]) {
             fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", spec, sb.project] } } }));
             const { report } = await doctorJson(sb, ["--client", "cursor", "--global"]);
             const entry = byId(report, "cursor.entry")[0];
             assert.equal(entry.status, status, spec);
-            if (status === "warn") assert.match(entry.fix, /sentinel-ir-mcp@0\.5 setup --client cursor/);
+            if (status === "warn") {
+                assert.match(entry.fix, why, spec);
+                assert.match(entry.fix, /sentinel-ir-mcp@stable-0\.5 setup --client cursor/);
+            }
         }
+    } finally { sb.cleanup(); }
+});
+
+test("doctor: setup writes the stable-<major>.<minor> tag of this release", () => {
+    const { version } = require("../package.json");
+    const { PACKAGE_SPEC, STABLE_TAG } = require("../src/clients");
+    assert.equal(STABLE_TAG, `stable-${version.split(".").slice(0, 2).join(".")}`);
+    assert.equal(PACKAGE_SPEC, `sentinel-ir-mcp@${STABLE_TAG}`);
+});
+
+test("doctor: the loaded sentinel-ir meets the dependency floor", async () => {
+    const sb = sandbox();
+    try {
+        const { IR_MIN } = require("../src/doctor");
+        assert.equal(`^${IR_MIN}`, require("../package.json").dependencies["sentinel-ir"]);
+        const { report } = await doctorJson(sb, []);
+        const pkg = byId(report, "package")[0];
+        assert.equal(pkg.status, "ok");
+        assert.match(pkg.message, new RegExp(`sentinel-ir ${require("sentinel-ir/package.json").version.replace(/\./g, "\\.")}$`));
+    } finally { sb.cleanup(); }
+});
+
+test("doctor: olderThan compares numerically and treats unknown as older", () => {
+    const { olderThan } = require("../src/doctor");
+    for (const [a, b, want] of [["0.5.2", "0.5.6", true], ["0.5.6", "0.5.6", false], ["0.5.10", "0.5.6", false], ["0.4.99", "0.5.6", true],
+        ["1.0.0", "0.5.6", false], ["0.5.7-rc.1", "0.5.6", false], ["unknown", "0.5.6", true], ["", "0.5.6", true], [undefined, "0.5.6", true]]) {
+        assert.equal(olderThan(a, b), want, `${a} < ${b}`);
+    }
+});
+
+function fakeNpxCopy(cache, key, spec, mcp, ir, { npx = true } = {}) {
+    const dir = path.join(cache, "_npx", key);
+    const mod = path.join(dir, "node_modules");
+    fs.mkdirSync(path.join(mod, "sentinel-ir-mcp"), { recursive: true });
+    fs.writeFileSync(path.join(mod, "sentinel-ir-mcp", "package.json"), JSON.stringify({ name: "sentinel-ir-mcp", version: mcp }));
+    if (ir !== null) {
+        fs.mkdirSync(path.join(mod, "sentinel-ir"), { recursive: true });
+        fs.writeFileSync(path.join(mod, "sentinel-ir", "package.json"), ir === "junk" ? "{nope" : JSON.stringify({ name: "sentinel-ir", version: ir }));
+    }
+    const range = spec.slice("sentinel-ir-mcp@".length);
+    fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify(npx
+        ? { dependencies: { "sentinel-ir-mcp": `^${range}` }, _npx: { packages: [spec] } }
+        : { dependencies: { "sentinel-ir-mcp": range } }));
+    return dir;
+}
+
+test("doctor warns about npx-cached copies whose sentinel-ir is too old and names the folder", async () => {
+    const sb = sandbox();
+    try {
+        const cache = path.join(sb.base, "npm-cache");
+        const stale = fakeNpxCopy(cache, "aaa1", "sentinel-ir-mcp@0.5", "0.5.0", "0.5.2");
+        const oldLine = fakeNpxCopy(cache, "bbb2", "sentinel-ir-mcp@0.2", "0.2.3", "0.2.1", { npx: false });
+        const missing = fakeNpxCopy(cache, "ccc3", "sentinel-ir-mcp@0.5", "0.5.0", null);
+        const broken = fakeNpxCopy(cache, "ddd4", "sentinel-ir-mcp@0.5", "0.5.0", "junk");
+        fakeNpxCopy(cache, "eee5", "sentinel-ir-mcp@stable-0.5", "0.5.1", "0.5.6");
+        fakeNpxCopy(cache, "fff6", "sentinel-ir-mcp@stable-0.5", "0.5.9", "0.6.0");
+        fs.mkdirSync(path.join(cache, "_npx", "ggg7", "node_modules", "other"), { recursive: true });
+        fs.writeFileSync(path.join(cache, "_npx", "not-a-folder"), "x");
+        const { report, code } = await doctorJson(sb, [], { env: { npm_config_cache: cache } });
+        const warns = byId(report, "npx.cache");
+        assert.deepEqual(warns.map((c) => c.status), ["warn", "warn", "warn", "warn"]);
+        assert.match(warns[0].message, /cached sentinel-ir-mcp@0\.5 \(sentinel-ir-mcp 0\.5\.0, sentinel-ir 0\.5\.2\)/);
+        assert.ok(warns[0].message.includes(stale));
+        assert.match(warns[0].fix, /npm cache npx rm aaa1\), then run: npx -y sentinel-ir-mcp@stable-0\.5 setup$/);
+        assert.match(warns[1].message, /cached sentinel-ir-mcp@0\.2 \(sentinel-ir-mcp 0\.2\.3, sentinel-ir 0\.2\.1\)/);
+        assert.ok(warns[1].message.includes(oldLine));
+        assert.ok(warns[2].message.includes(missing) && /sentinel-ir unknown/.test(warns[2].message));
+        assert.ok(warns[3].message.includes(broken) && /sentinel-ir unknown/.test(warns[3].message));
+        assert.equal(code, 0, "a stale cache is a warning, not a failure");
+    } finally { sb.cleanup(); }
+});
+
+test("doctor: the npx cache check reads the sentinel-ir the server loads, nested or top-level", async () => {
+    const sb = sandbox();
+    try {
+        const cache = path.join(sb.base, "npm-cache");
+        const nest = (dir, v) => {
+            const d = path.join(dir, "node_modules", "sentinel-ir-mcp", "node_modules", "sentinel-ir");
+            fs.mkdirSync(d, { recursive: true });
+            fs.writeFileSync(path.join(d, "package.json"), JSON.stringify({ name: "sentinel-ir", version: v }));
+        };
+        const healthy = fakeNpxCopy(cache, "aaa1", "sentinel-ir-mcp@stable-0.5", "0.5.1", "0.4.0");
+        nest(healthy, "0.5.6");
+        const stale = fakeNpxCopy(cache, "bbb2", "sentinel-ir-mcp@0.5", "0.5.0", "0.6.0");
+        nest(stale, "0.5.2");
+        const { report } = await doctorJson(sb, [], { env: { npm_config_cache: cache } });
+        const warns = byId(report, "npx.cache");
+        assert.equal(warns.length, 1);
+        assert.ok(warns[0].message.includes(stale) && /sentinel-ir 0\.5\.2\)/.test(warns[0].message), warns[0].message);
+    } finally { sb.cleanup(); }
+});
+
+test("doctor: an empty or missing npx cache is ok", async () => {
+    const sb = sandbox();
+    try {
+        for (const cache of [path.join(sb.base, "none"), sb.base]) {
+            const { report } = await doctorJson(sb, [], { env: { npm_config_cache: cache } });
+            assert.deepEqual(byId(report, "npx.cache").map((c) => c.status), ["ok"]);
+        }
+        const { report } = await doctorJson(sb, [], { platform: "win32", env: { LOCALAPPDATA: path.join(sb.base, "Local") } });
+        assert.ok(byId(report, "npx.cache")[0].message.includes(path.join(sb.base, "Local", "npm-cache", "_npx")));
     } finally { sb.cleanup(); }
 });

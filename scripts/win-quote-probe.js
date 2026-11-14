@@ -39,16 +39,16 @@ for (const p of projects.slice(1)) fs.mkdirSync(p);
 const matches = (tool, folder, argv) => tool === "vscode"
     ? Array.isArray(argv) && argv.length === 2 && argv[0] === "--add-mcp" && (() => {
         try {
-            return JSON.stringify(JSON.parse(argv[1])) === JSON.stringify({ name: "sentinel-ir", type: "stdio", command: "npx", args: ["-y", "sentinel-ir-mcp@0.5", folder] });
+            return JSON.stringify(JSON.parse(argv[1])) === JSON.stringify({ name: "sentinel-ir", type: "stdio", command: "npx", args: ["-y", "sentinel-ir-mcp@stable-0.5", folder] });
         } catch { return false; }
     })()
     : Array.isArray(argv) && argv[1] === "add-json"
         ? argv.length === 4 && argv[0] === "mcp" && argv[2] === "sentinel-ir" && (() => {
             try {
-                return JSON.stringify(JSON.parse(argv[3])) === JSON.stringify({ type: "stdio", command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.5", folder] });
+                return JSON.stringify(JSON.parse(argv[3])) === JSON.stringify({ type: "stdio", command: "cmd", args: ["/c", "npx", "-y", "sentinel-ir-mcp@stable-0.5", folder] });
             } catch { return false; }
         })()
-        : JSON.stringify(argv) === JSON.stringify(["mcp", "add", "--transport", "stdio", "sentinel-ir", "--", "cmd", "/c", "npx", "-y", "sentinel-ir-mcp@0.5", folder]);
+        : JSON.stringify(argv) === JSON.stringify(["mcp", "add", "--transport", "stdio", "sentinel-ir", "--", "cmd", "/c", "npx", "-y", "sentinel-ir-mcp@stable-0.5", folder]);
 
 const shells = [];
 const has = (exe) => spawnSync("where", [exe], { encoding: "utf8" }).status === 0;

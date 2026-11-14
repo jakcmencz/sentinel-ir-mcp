@@ -28,6 +28,32 @@ of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.5.1** makes sure an installed server gets fixes:
+
+- It needs `sentinel-ir` 0.5.6 or newer. 0.5.3–0.5.6 fix a comment between
+  two tokens hiding dangerous code, a broken Python or Rust file showing
+  `low`, a parser that could hang for minutes on one file, and the line of
+  Rust `use std::process::Command` signals.
+- `setup` writes `sentinel-ir-mcp@stable-0.5`, an npm tag that points at the
+  newest 0.5.x. `npx` keeps starting the copy it downloaded first for a
+  version or range such as `@0.5` and never picks up a fix; a tag is looked
+  up again on every start. Measured with npm 10.8.3 and 11.21.2 against a
+  local registry: after the tag moved, the next start ran the new version;
+  with the registry unreachable (connection refused), the cached copy still
+  started.
+- `doctor` warns about an entry that pins a version or range (`@0.5`,
+  `@0.5.0`, ...) and about every copy in npm's `_npx` cache whose
+  `sentinel-ir` is older than 0.5.6, with the folder to delete. It fails when
+  the server itself runs an older `sentinel-ir`.
+
+If you set up 0.5.0 or older, run `setup` again **with the new tag** (`npx -y
+sentinel-ir-mcp@0.5 ...` would start your cached 0.5.0):
+
+```bash
+npx -y sentinel-ir-mcp@stable-0.5 setup --client cursor
+npx -y sentinel-ir-mcp@stable-0.5 doctor --client cursor
+```
+
 **0.5.0** reads Rust (`.rs`) with `sentinel-ir` 0.5.2: `unsafe` and FFI,
 `std::process::Command`, file deletes and writes, HTTP clients and routes
 (`axum`, `actix-web`, ...). A `build.rs` or procedural macro that touches
@@ -38,7 +64,8 @@ because it runs on your machine during `cargo build`.
   Cargo's `CACHEDIR.TAG` file, listed in `skipped.cargoTarget`. A plain folder
   named `target` (e.g. in a JS project) is still scanned.
 - `setup` writes `sentinel-ir-mcp@0.5`; `doctor` asks entries pinned to 0.4
-  or older to run `setup` again.
+  or older to run `setup` again (since 0.5.1 `setup` writes
+  `sentinel-ir-mcp@stable-0.5`, see above).
 
 **0.4.6** is listed in the official
 [MCP Registry](https://registry.modelcontextprotocol.io) as
@@ -54,7 +81,7 @@ can check later which version of a file the agent was shown (see
 - **One question in `setup`:** *"Keep a log of what the agent asks for (file
   names and results, never your code)? [y/N]"*. Or `setup --audit-log`;
   `--no-audit-log` turns it off. Running `setup` again keeps the setting.
-- **One command to read it:** `npx -y sentinel-ir-mcp@0.5 log` prints the last
+- **One command to read it:** `npx -y sentinel-ir-mcp@stable-0.5 log` prints the last
   50 entries as plain lines, `--all` everything, `--json` for scripts:
 
   ```text
@@ -183,9 +210,9 @@ nothing to compile (the parser is WebAssembly).
 Run it in your project folder:
 
 ```bash
-npx -y sentinel-ir-mcp@0.5 setup --client cursor     # or windsurf, claude-desktop, vscode, claude-code
-npx -y sentinel-ir-mcp@0.5 doctor --client cursor    # after restarting the client
-npx -y sentinel-ir-mcp@0.5 guide                     # optional: text for AGENTS.md / client rules
+npx -y sentinel-ir-mcp@stable-0.5 setup --client cursor     # or windsurf, claude-desktop, vscode, claude-code
+npx -y sentinel-ir-mcp@stable-0.5 doctor --client cursor    # after restarting the client
+npx -y sentinel-ir-mcp@stable-0.5 guide                     # optional: text for AGENTS.md / client rules
 ```
 
 `setup` (without `--client` it asks which client):
@@ -199,8 +226,8 @@ npx -y sentinel-ir-mcp@0.5 guide                     # optional: text for AGENTS
   touched;
 - gives the agent one folder (`--project`, default: the current folder) and
   refuses your home folder or a whole disk;
-- writes `sentinel-ir-mcp@0.5`, so clients get 0.5.x fixes but no unexpected
-  new features;
+- writes `sentinel-ir-mcp@stable-0.5`, an npm tag for the newest 0.5.x, so
+  clients get 0.5.x fixes on their next start but no unexpected new features;
 - asks which files or folders the agent must not read (`--exclude <name>`,
   repeatable, skips the question; see [Excluding files](#excluding-files));
 - for VS Code and Claude Code it writes nothing and prints their own install
@@ -214,7 +241,7 @@ npx -y sentinel-ir-mcp@0.5 guide                     # optional: text for AGENTS
 | `vscode`, `claude-code` | nothing; prints the command to run |
 
 On Windows the entry is `"command": "cmd", "args": ["/c", "npx", "-y",
-"sentinel-ir-mcp@0.5", "<folder>"]`: there `npx` is `npx.cmd`, and starting it
+"sentinel-ir-mcp@stable-0.5", "<folder>"]`: there `npx` is `npx.cmd`, and starting it
 without a shell failed with `ENOENT` on a real Windows runner. For VS Code and
 Claude Code, `setup` prints a PowerShell and a Command Prompt version of the
 command. What was measured on which system: [COMPATIBILITY.md](COMPATIBILITY.md).
@@ -238,21 +265,26 @@ Open Cursor Settings → Customize → MCPs and turn on the switch next to
 *Connected* and 3 tools. A server installed with the link below (user-level
 `~/.cursor/mcp.json`) connected without this step.
 
-### Getting a newer 0.2.x
+### Getting a newer version
 
-`npx` keeps the package it downloaded for `sentinel-ir-mcp@0.2` and keeps
-starting that copy, even when a newer 0.2.x is on npm (measured with npm
-10.8.2, 10.8.3 and 10.9.9: a cached 0.2.2 kept running after 0.2.3 was
-released; `--prefer-online` and `npm cache clean --force` did not change it).
-To get the newest 0.2.x:
+`npx` keeps the package it downloaded for a version or range
+(`sentinel-ir-mcp@0.5`, `@0.2`, ...) and keeps starting that copy, together
+with the `sentinel-ir` it got then, even when newer versions are on npm
+(measured with npm 10.8.2, 10.8.3, 10.9.9 and 11.21.2; on npm 10
+`--prefer-online` and `npm cache clean --force` did not change it). The tag
+`setup` writes since 0.5.1 (`@stable-0.5`) is looked up again on every start
+instead. If a client still starts an old copy:
 
-1. Check what runs: `npx -y sentinel-ir-mcp@0.2 doctor` prints
-   `sentinel-ir-mcp <version>`.
-2. Close the client app and delete the `_npx` folder in npm's cache
+1. Run `npx -y sentinel-ir-mcp@stable-0.5 doctor`. It prints the versions it
+   runs and lists every cached copy with a `sentinel-ir` older than 0.5.6,
+   with its folder.
+2. Close the client app and delete those folders (npm 11: `npm cache npx rm
+   <key>`). Deleting the whole `_npx` folder in npm's cache also works
    (`npm config get cache` shows where it is; usually `~/.npm/_npx`, on
-   Windows `%LocalAppData%\npm-cache\_npx`). This removes all packages cached
-   by `npx`, not only this one; they are downloaded again when needed.
-3. Start the client again. The next start downloads the newest 0.2.x.
+   Windows `%LocalAppData%\npm-cache\_npx`); it removes all packages cached
+   by `npx`, which are downloaded again when needed.
+3. Run `npx -y sentinel-ir-mcp@stable-0.5 setup` for your client and start the
+   client again.
 
 A folder that is literally named `setup`, `doctor` or `guide` must now be
 passed as `./setup` (or an absolute path); the bare word is the command.
@@ -274,8 +306,8 @@ VS Code 1.143 and Cursor 3.26 (see [COMPATIBILITY.md](COMPATIBILITY.md)). A link
 project path, so it uses `${workspaceFolder}`; if your client does not expand
 it, use `setup` instead.
 
-- Cursor: [Install in Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=sentinel-ir&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNlbnRpbmVsLWlyLW1jcEAwLjMiLCIke3dvcmtzcGFjZUZvbGRlcn0iXX0=)
-- VS Code: [Install in VS Code](vscode:mcp/install?%7B%22name%22%3A%22sentinel-ir%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22sentinel-ir-mcp%400.3%22%2C%22%24%7BworkspaceFolder%7D%22%5D%7D)
+- Cursor: [Install in Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=sentinel-ir&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNlbnRpbmVsLWlyLW1jcEBzdGFibGUtMC41IiwiJHt3b3Jrc3BhY2VGb2xkZXJ9Il19)
+- VS Code: [Install in VS Code](vscode:mcp/install?%7B%22name%22%3A%22sentinel-ir%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22sentinel-ir-mcp%40stable-0.5%22%2C%22%24%7BworkspaceFolder%7D%22%5D%7D)
 
 Some sites (including GitLab and npm) may not open `cursor://` or `vscode:`
 links; copy the link into the browser address bar or use `setup`.
@@ -294,7 +326,7 @@ Settings → Developer → Edit Config opens `claude_desktop_config.json`
   "mcpServers": {
     "sentinel-ir": {
       "command": "npx",
-      "args": ["-y", "sentinel-ir-mcp@0.5", "/Users/you/projects/my-app"]
+      "args": ["-y", "sentinel-ir-mcp@stable-0.5", "/Users/you/projects/my-app"]
     }
   }
 }
@@ -313,7 +345,7 @@ project entry has to be switched on once in Cursor Settings → Customize → MC
   "mcpServers": {
     "sentinel-ir": {
       "command": "npx",
-      "args": ["-y", "sentinel-ir-mcp@0.5", "${workspaceFolder}"]
+      "args": ["-y", "sentinel-ir-mcp@stable-0.5", "${workspaceFolder}"]
     }
   }
 }
@@ -329,8 +361,8 @@ with your project's absolute path.
 #### Other clients
 
 Any MCP client that starts stdio servers works with
-`command: "npx"`, `args: ["-y", "sentinel-ir-mcp@0.5", "<folder>"]`
-(on Windows: `command: "cmd"`, `args: ["/c", "npx", "-y", "sentinel-ir-mcp@0.5", "<folder>"]`).
+`command: "npx"`, `args: ["-y", "sentinel-ir-mcp@stable-0.5", "<folder>"]`
+(on Windows: `command: "cmd"`, `args: ["/c", "npx", "-y", "sentinel-ir-mcp@stable-0.5", "<folder>"]`).
 Without folder arguments the server uses the client's
 [MCP roots](https://modelcontextprotocol.io/specification/latest/client/roots)
 if the client offers them; if it offers none, only `analyze_code` works.
@@ -338,7 +370,7 @@ if the client offers them; if it offers none, only `analyze_code` works.
 ### Excluding files
 
 ```bash
-npx -y sentinel-ir-mcp@0.5 setup --client cursor --exclude secrets --exclude "*.min.js"
+npx -y sentinel-ir-mcp@stable-0.5 setup --client cursor --exclude secrets --exclude "*.min.js"
 ```
 
 | you write | excludes |
@@ -363,8 +395,8 @@ other tools of its client is told about them, but this server cannot stop it.
 ### Audit log
 
 ```bash
-npx -y sentinel-ir-mcp@0.5 setup --client cursor --audit-log   # or answer "y" in setup
-npx -y sentinel-ir-mcp@0.5 log                                 # what the agent asked for
+npx -y sentinel-ir-mcp@stable-0.5 setup --client cursor --audit-log   # or answer "y" in setup
+npx -y sentinel-ir-mcp@stable-0.5 log                                 # what the agent asked for
 ```
 
 | system | folder |
