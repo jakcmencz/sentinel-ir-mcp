@@ -3,6 +3,7 @@
 const fs = require("fs");
 const http = require("http");
 const https = require("https");
+const net = require("net");
 const path = require("path");
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
@@ -66,12 +67,14 @@ const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 
 const unescapeLogin = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
 
-// The proxy npm would use for url (npm config, then HTTPS_PROXY/HTTP_PROXY), or null.
+// The proxy npm would use for url (npm config, then HTTPS_PROXY/HTTP_PROXY), null for none,
+// false for a proxy setting doctor cannot use (it then skips instead of going direct).
 function proxyFor(url, env) {
     const noProxy = env.npm_config_noproxy || env.NO_PROXY || env.no_proxy || "";
-    const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    const host = url.hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
     for (const rule of noProxy.split(/[\s,]+/).filter(Boolean)) {
-        const r = rule.replace(/:\d+$/, "").replace(/^\*?\.?/, "").toLowerCase();
+        const bare = /^\[(.*)\](:\d+)?$/.exec(rule)?.[1] ?? (rule.split(":").length === 2 ? rule.replace(/:\d+$/, "") : rule);
+        const r = bare.replace(/^\*?\.?/, "").replace(/\.$/, "").toLowerCase();
         if (rule === "*" || host === r || host.endsWith("." + r)) return null;
     }
     const raw = url.protocol === "https:"
@@ -80,14 +83,15 @@ function proxyFor(url, env) {
     if (!raw) return null;
     try {
         const p = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`);
-        return p.protocol === "http:" || p.protocol === "https:" ? p : null;
-    } catch { return null; }
+        return p.protocol === "http:" || p.protocol === "https:" ? p : false;
+    } catch { return false; }
 }
 
 // GET url directly or through proxy; calls back with the response. Adds every request it opens to open.
 function openGet(url, env, tls, open, onResponse, onFail) {
     const headers = { accept: "application/json" };
     const proxy = proxyFor(url, env);
+    if (proxy === false) { onFail(); return; }
     if (!proxy) {
         const req = (url.protocol === "https:" ? https : http).get(url, { headers, ...tls }, onResponse);
         req.on("error", onFail);
@@ -113,7 +117,7 @@ function openGet(url, env, tls, open, onResponse, onFail) {
         if (res.statusCode !== 200) { socket.destroy(); onFail(); return; }
         const req = https.get(url, {
             headers, ...tls,
-            createConnection: () => require("tls").connect({ socket, servername: url.hostname.replace(/^\[|\]$/g, ""), ...tls })
+            createConnection: () => require("tls").connect({ socket, servername: net.isIP(url.hostname.replace(/^\[|\]$/g, "")) ? undefined : url.hostname, ...tls })
         }, onResponse);
         req.on("error", onFail);
         open.push(req);
@@ -149,12 +153,12 @@ function fetchDistTags(env, timeoutMs = 3000, tls = {}) {
                     return;
                 }
                 if (res.statusCode !== 200) { res.resume(); finish(null); return; }
-                let body = "";
-                res.setEncoding("utf8");
-                res.on("data", (d) => { body += d; if (body.length > 65536) finish(null); });
+                const chunks = [];
+                let size = 0;
+                res.on("data", (d) => { chunks.push(d); size += d.length; if (size > 65536) finish(null); });
                 res.on("end", () => {
                     try {
-                        const tags = JSON.parse(body);
+                        const tags = JSON.parse(Buffer.concat(chunks).toString("utf8"));
                         finish(tags && typeof tags === "object" && !Array.isArray(tags) ? tags : null);
                     } catch { finish(null); }
                 });
@@ -185,7 +189,7 @@ async function checkUpdate(io, add) {
         add("skip", "package.update", `npm has no ${tag} tag for sentinel-ir-mcp`);
         return;
     }
-    if (typeof newest !== "string" || !/^\d+\.\d+\.\d+$/.test(newest)) {
+    if (typeof newest !== "string" || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(newest)) {
         const shown = JSON.stringify(newest) ?? String(newest);
         add("skip", "package.update", `npm's ${tag} tag points to ${shown.length > 40 ? shown.slice(0, 40) + "..." : shown}, not a release version; no update check`);
         return;
@@ -490,4 +494,4 @@ async function runDoctor(opts, io) {
     return failed ? 1 : 0;
 }
 
-module.exports = { runDoctor, entryFolders, olderThan, staleNpxCopies, fetchDistTags, installKind, IR_MIN };
+module.exports = { runDoctor, entryFolders, olderThan, staleNpxCopies, fetchDistTags, proxyFor, installKind, IR_MIN };

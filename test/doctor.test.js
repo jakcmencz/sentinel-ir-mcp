@@ -8,7 +8,7 @@ const path = require("path");
 const { runCommand } = require("../src/cli");
 const http = require("http");
 const https = require("https");
-const { entryFolders, fetchDistTags, installKind } = require("../src/doctor");
+const { entryFolders, fetchDistTags, installKind, proxyFor } = require("../src/doctor");
 const { version } = require("../package.json");
 
 function sandbox() {
@@ -332,6 +332,7 @@ test("doctor: current, offline, missing tag and no update check", async () => {
         assert.equal(st, "skip");
         assert.ok(!/[\u0000-\u001f]/.test(msg), "control characters from the registry are escaped");
         assert.match(msg, /\.\.\., not a release version/);
+        assert.match((await status(async () => ({ [STABLE]: "0.05.06" })))[0][1], /not a release version/, "npm never publishes leading zeros");
         assert.match((await status(async () => ({ [STABLE]: 5 })))[0][1], /points to 5, not a release/);
         assert.deepEqual(await status(null), [], "tests and embedders without fetchDistTags stay offline");
     } finally { sb.cleanup(); }
@@ -357,12 +358,25 @@ test("installKind tells npx copies, global installs and other folders apart", ()
     assert.equal(installKind("/home/a/proj/node_modules/sentinel-ir-mcp").kind, "other");
 });
 
+test("proxyFor: NO_PROXY with IPv6, ports and trailing dots; unusable proxies are not bypassed", () => {
+    const P = "http://p:3128";
+    const via = (u, env) => proxyFor(new URL(u), { HTTPS_PROXY: P, HTTP_PROXY: P, ...env });
+    for (const rule of ["::1", "[::1]", "[::1]:443"]) assert.equal(via("https://[::1]/", { NO_PROXY: rule }), null, rule);
+    assert.equal(via("https://registry.npmjs.org./", { NO_PROXY: "npmjs.org" }), null);
+    assert.equal(via("https://registry.npmjs.org/", { NO_PROXY: "registry.npmjs.org.:443" }), null);
+    assert.equal(via("https://registry.npmjs.org/", { NO_PROXY: "example.com" }).href, "http://p:3128/");
+    assert.equal(via("https://[::2]/", { NO_PROXY: "::1" }).href, "http://p:3128/");
+    for (const bad of ["socks5://p:1080", "http://[bad"]) assert.equal(via("https://registry.npmjs.org/", { HTTPS_PROXY: bad }), false, bad);
+    assert.equal(proxyFor(new URL("https://registry.npmjs.org/"), {}), null);
+});
+
 test("fetchDistTags reads the registry from npm_config_registry and gives up on bad answers", async () => {
     let mode = "ok";
     const server = http.createServer((req, res) => {
         if (mode === "slow") return; // never answers
         if (mode === "500") { res.writeHead(500); return res.end("{}"); }
         if (mode === "junk") { res.writeHead(200); return res.end("not json"); }
+        if (mode === "wide") { res.writeHead(200); return res.end(JSON.stringify({ latest: "0.5.3", pad: "č".repeat(40000) })); }
         if (mode === "huge") { res.writeHead(200); return res.end(JSON.stringify({ latest: "0.5.3", pad: "x".repeat(70000) })); }
         assert.equal(req.url, "/npm/-/package/sentinel-ir-mcp/dist-tags");
         res.writeHead(200, { "content-type": "application/json" });
@@ -372,7 +386,7 @@ test("fetchDistTags reads the registry from npm_config_registry and gives up on 
     const env = { npm_config_registry: `http://127.0.0.1:${server.address().port}/npm` };
     try {
         assert.deepEqual(await fetchDistTags(env), { latest: "0.5.3", "stable-0.5": "0.5.3" });
-        for (mode of ["500", "junk", "huge"]) assert.equal(await fetchDistTags(env), null, mode);
+        for (mode of ["500", "junk", "huge", "wide"]) assert.equal(await fetchDistTags(env), null, mode);
         mode = "slow";
         const t0 = Date.now();
         assert.equal(await fetchDistTags(env, 300), null);
