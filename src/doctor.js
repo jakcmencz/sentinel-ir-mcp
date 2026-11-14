@@ -62,31 +62,106 @@ function installKind(dir) {
     return { kind: "other", dir };
 }
 
+const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+
+// The proxy npm would use for url (npm config, then HTTPS_PROXY/HTTP_PROXY), or null.
+function proxyFor(url, env) {
+    const noProxy = env.npm_config_noproxy ?? env.NO_PROXY ?? env.no_proxy ?? "";
+    const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    for (const rule of noProxy.split(/[\s,]+/).filter(Boolean)) {
+        const r = rule.replace(/:\d+$/, "").replace(/^\*?\.?/, "").toLowerCase();
+        if (rule === "*" || host === r || host.endsWith("." + r)) return null;
+    }
+    const raw = url.protocol === "https:"
+        ? env.npm_config_https_proxy || env.HTTPS_PROXY || env.https_proxy || env.npm_config_proxy || env.HTTP_PROXY || env.http_proxy
+        : env.npm_config_proxy || env.HTTP_PROXY || env.http_proxy;
+    if (!raw) return null;
+    try {
+        const p = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`);
+        return p.protocol === "http:" || p.protocol === "https:" ? p : null;
+    } catch { return null; }
+}
+
+// GET url directly or through proxy; calls back with the response. Returns the requests to destroy on timeout.
+function openGet(url, env, tls, onResponse, onFail) {
+    const headers = { accept: "application/json" };
+    const proxy = proxyFor(url, env);
+    if (!proxy) {
+        const req = (url.protocol === "https:" ? https : http).get(url, { headers, ...tls }, onResponse);
+        req.on("error", onFail);
+        return [req];
+    }
+    const proxyLib = proxy.protocol === "https:" ? https : http;
+    const auth = proxy.username
+        ? { "proxy-authorization": "Basic " + Buffer.from(`${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`).toString("base64") }
+        : {};
+    const target = { host: proxy.hostname.replace(/^\[|\]$/g, ""), port: proxy.port || (proxy.protocol === "https:" ? 443 : 80) };
+    if (url.protocol === "http:") {
+        const req = proxyLib.get({ ...target, path: url.href, headers: { ...headers, ...auth, host: url.host } }, onResponse);
+        req.on("error", onFail);
+        return [req];
+    }
+    const reqs = [];
+    const connect = proxyLib.request({ ...target, method: "CONNECT", path: `${url.hostname}:${url.port || 443}`, headers: { ...auth, host: `${url.hostname}:${url.port || 443}` } });
+    connect.on("connect", (res, socket) => {
+        if (res.statusCode !== 200) { socket.destroy(); onFail(); return; }
+        const req = https.get(url, {
+            headers, ...tls, agent: false,
+            createConnection: () => require("tls").connect({ socket, servername: url.hostname.replace(/^\[|\]$/g, ""), ...tls })
+        }, onResponse);
+        req.on("error", onFail);
+        reqs.push(req);
+    });
+    connect.on("error", onFail);
+    connect.end();
+    reqs.push(connect);
+    return reqs;
+}
+
 // npm dist-tags of sentinel-ir-mcp, or null when the registry does not answer in time.
-function fetchDistTags(env, timeoutMs = 3000) {
+// Uses npm_config_registry and the proxy npm would use; follows up to 3 redirects.
+function fetchDistTags(env, timeoutMs = 3000, tls = {}) {
     return new Promise((resolve) => {
+        let open = [];
+        let done = false;
+        const finish = (v) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            for (const r of open) r.destroy();
+            resolve(v);
+        };
+        const timer = setTimeout(() => finish(null), timeoutMs);
+        const get = (url, hops) => {
+            if (url.protocol !== "http:" && url.protocol !== "https:") { finish(null); return; }
+            open = openGet(url, env, tls, (res) => {
+                if (REDIRECTS.has(res.statusCode) && res.headers.location && hops < 3) {
+                    res.resume();
+                    let next;
+                    try { next = new URL(res.headers.location, url); } catch { finish(null); return; }
+                    if (url.protocol === "https:" && next.protocol !== "https:") { finish(null); return; }
+                    get(next, hops + 1);
+                    return;
+                }
+                if (res.statusCode !== 200) { res.resume(); finish(null); return; }
+                let body = "";
+                res.setEncoding("utf8");
+                res.on("data", (d) => { body += d; if (body.length > 65536) finish(null); });
+                res.on("end", () => {
+                    try {
+                        const tags = JSON.parse(body);
+                        finish(tags && typeof tags === "object" && !Array.isArray(tags) ? tags : null);
+                    } catch { finish(null); }
+                });
+                res.on("error", () => finish(null));
+                res.on("aborted", () => finish(null));
+            }, () => finish(null));
+        };
         let url;
         try {
             url = new URL("-/package/sentinel-ir-mcp/dist-tags", (env.npm_config_registry || "https://registry.npmjs.org/").replace(/\/?$/, "/"));
-        } catch { resolve(null); return; }
-        const lib = url.protocol === "http:" ? http : url.protocol === "https:" ? https : null;
-        if (!lib) { resolve(null); return; }
-        const req = lib.get(url, { timeout: timeoutMs, headers: { accept: "application/json" } }, (res) => {
-            if (res.statusCode !== 200) { res.resume(); resolve(null); return; }
-            let body = "";
-            res.setEncoding("utf8");
-            res.on("data", (d) => { body += d; if (body.length > 65536) { resolve(null); req.destroy(); } });
-            res.on("end", () => {
-                try {
-                    const tags = JSON.parse(body);
-                    resolve(tags && typeof tags === "object" && !Array.isArray(tags) ? tags : null);
-                } catch { resolve(null); }
-            });
-        });
-        const timer = setTimeout(() => req.destroy(), timeoutMs);
-        req.on("timeout", () => req.destroy());
-        req.on("error", () => resolve(null));
-        req.on("close", () => { clearTimeout(timer); resolve(null); });
+        } catch { finish(null); return; }
+        get(url, 0);
     });
 }
 
@@ -100,13 +175,22 @@ async function checkUpdate(io, add) {
         add("skip", "package.update", "Could not reach the npm registry to look for a newer sentinel-ir-mcp (offline or blocked)");
         return;
     }
-    const newest = tags[tag];
-    if (typeof newest !== "string" || !/^\d+\.\d+\.\d+$/.test(newest)) {
+    const newest = Object.prototype.hasOwnProperty.call(tags, tag) ? tags[tag] : undefined;
+    if (newest === undefined) {
         add("skip", "package.update", `npm has no ${tag} tag for sentinel-ir-mcp`);
         return;
     }
-    if (!olderThan(version, newest)) {
+    if (typeof newest !== "string" || !/^\d+\.\d+\.\d+$/.test(newest)) {
+        const shown = JSON.stringify(newest) ?? String(newest);
+        add("skip", "package.update", `npm's ${tag} tag points to ${shown.length > 40 ? shown.slice(0, 40) + "..." : shown}, not a release version; no update check`);
+        return;
+    }
+    if (newest === version) {
         add("ok", "package.update", `sentinel-ir-mcp ${version} is the newest ${tag} on npm`);
+        return;
+    }
+    if (!olderThan(version, newest)) {
+        add("ok", "package.update", `sentinel-ir-mcp ${version} is newer than npm's ${tag} (${newest})`);
         return;
     }
     const spec = `sentinel-ir-mcp@${tag}`;
