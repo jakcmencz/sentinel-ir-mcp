@@ -382,6 +382,12 @@ test("doctor finds an old global install that bare npx starts, also under a Wind
         assert.deepEqual(globalDirs({ APPDATA: "C:\\U\\AppData\\Roaming" }, "win32", `${nvm}\\node.exe`),
             ["C:\\U\\AppData\\Roaming\\npm\\node_modules\\sentinel-ir-mcp", `${nvm}\\node_modules\\sentinel-ir-mcp`]);
         assert.deepEqual(globalDirs({}, "linux", "/usr/bin/node"), ["/usr/lib/node_modules/sentinel-ir-mcp"]);
+        const linked = path.join(sb.base, "linked");
+        fs.mkdirSync(linked);
+        fs.rmSync(path.join(prefix, "lib", "node_modules", "sentinel-ir-mcp"), { recursive: true });
+        fs.symlinkSync(linked, path.join(prefix, "lib", "node_modules", "sentinel-ir-mcp"), "junction");
+        const { report: r2 } = await doctorJson(sb, [], { env: { npm_config_prefix: prefix }, io: { fetchDistTags: newerTags, packageDir: linked } });
+        assert.match(byId(r2, "package.update")[0].message, /a global install/, "npm link / npm i -g <folder>");
     } finally { sb.cleanup(); }
 });
 
@@ -507,6 +513,8 @@ test("fetchDistTags goes through the proxy npm would use", async () => {
         assert.equal(lastAuth, "Basic " + Buffer.from("tok:s@cret").toString("base64"), "registry login sent as Authorization");
         assert.deepEqual(await fetchDistTags({ npm_config_registry: `http://tok:50%@127.0.0.1:${rport}/`, HTTP_PROXY: `http://u:1%zz@127.0.0.1:${pport}` }), TAGS, "a literal % in a login");
         assert.equal(lastAuth, "Basic " + Buffer.from("tok:50%").toString("base64"));
+        assert.deepEqual(await fetchDistTags({ npm_config_registry: `http://u:p%zz@127.0.0.1:${rport}/` }), TAGS, "a malformed % in a direct registry login");
+        assert.equal(lastAuth, "Basic " + Buffer.from("u:p%zz").toString("base64"));
         seen.length = 0;
         assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: P, NO_PROXY: "example.com, 127.0.0.1" }), TAGS);
         assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: P, no_proxy: "*" }), TAGS);
@@ -523,6 +531,14 @@ test("fetchDistTags goes through the proxy npm would use", async () => {
             assert.equal(await fetchDistTags({ npm_config_registry: "https://127.0.0.2:1/", HTTPS_PROXY: P }, 3000, { ca: cert.cert }), null, "certificate for localhost does not pass for 127.0.0.2");
             assert.deepEqual(await fetchDistTags({ npm_config_registry: treg, HTTP_PROXY: P }, 3000, { ca: cert.cert }), { ...TAGS, tls: "1" }, "https falls back to HTTP_PROXY");
             assert.equal(await fetchDistTags({ npm_config_registry: treg, HTTPS_PROXY: P }), null, "certificate still checked through the tunnel");
+            assert.deepEqual(await fetchDistTags({ npm_config_registry: `https://u:p%zz@localhost:${tport}/`, HTTPS_PROXY: P }, 3000, { ca: cert.cert }), { ...TAGS, tls: "1" }, "malformed % in an https login through the tunnel");
+            const cafile = path.join(os.tmpdir(), `sir-ca-${process.pid}.pem`);
+            fs.writeFileSync(cafile, cert.cert);
+            try {
+                assert.deepEqual(await fetchDistTags({ npm_config_registry: treg, npm_config_cafile: cafile }), { ...TAGS, tls: "1" }, "npm cafile");
+                assert.deepEqual(await fetchDistTags({ npm_config_registry: treg, npm_config_strict_ssl: "false" }), { ...TAGS, tls: "1" }, "npm strict-ssl=false");
+                assert.equal(await fetchDistTags({ npm_config_registry: treg, npm_config_cafile: cafile + ".missing" }), null);
+            } finally { fs.rmSync(cafile, { force: true }); }
             assert.equal(await fetchDistTags({ npm_config_registry: `https://deny:${tport}/`, HTTPS_PROXY: P }), null, "CONNECT refused");
             assert.equal(await fetchDistTags({ npm_config_registry: "https://localhost:2/hang/", HTTPS_PROXY: P }, 300, { ca: cert.cert }), null);
             await new Promise((r) => setTimeout(r, 100));

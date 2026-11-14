@@ -64,6 +64,7 @@ function globalDirs(env, platform, execPath) {
     return [...new Set(dirs)];
 }
 
+const realDir = (d) => { try { return fs.realpathSync(d); } catch { return d; } };
 const sameDir = (a, b) => a.replace(/[\\/]+$/, "").toLowerCase() === b.replace(/[\\/]+$/, "").toLowerCase();
 
 // Where the package in dir is installed: an npx cache copy, a global install or elsewhere.
@@ -99,11 +100,19 @@ function proxyFor(url, env) {
 
 // GET url directly or through proxy; calls back with the response. Adds every request it opens to open.
 function openGet(url, env, tls, open, onResponse, onFail) {
-    const headers = { accept: "application/json" };
+    try { openGetOrThrow(url, env, tls, open, onResponse, onFail); } catch { onFail(); }
+}
+
+function openGetOrThrow(url, env, tls, open, onResponse, onFail) {
+    // The registry login goes in a header we build: Node throws on a malformed % in URL credentials.
+    const bare = new URL(url.href);
+    bare.username = bare.password = "";
+    const headers = { accept: "application/json",
+        ...(url.username ? { authorization: "Basic " + Buffer.from(`${unescapeLogin(url.username)}:${unescapeLogin(url.password)}`).toString("base64") } : {}) };
     const proxy = proxyFor(url, env);
     if (proxy === false) { onFail(); return; }
     if (!proxy) {
-        const req = (url.protocol === "https:" ? https : http).get(url, { headers, ...tls }, onResponse);
+        const req = (url.protocol === "https:" ? https : http).get(bare, { headers, ...tls }, onResponse);
         req.on("error", onFail);
         open.push(req);
         return;
@@ -114,10 +123,7 @@ function openGet(url, env, tls, open, onResponse, onFail) {
         : {};
     const target = { host: proxy.hostname.replace(/^\[|\]$/g, ""), port: proxy.port || (proxy.protocol === "https:" ? 443 : 80) };
     if (url.protocol === "http:") {
-        const bare = new URL(url.href);
-        bare.username = bare.password = "";
-        const login = url.username ? { authorization: "Basic " + Buffer.from(`${unescapeLogin(url.username)}:${unescapeLogin(url.password)}`).toString("base64") } : {};
-        const req = proxyLib.get({ ...target, path: bare.href, headers: { ...headers, ...login, ...auth, host: bare.host } }, onResponse);
+        const req = proxyLib.get({ ...target, path: bare.href, headers: { ...headers, ...auth, host: bare.host } }, onResponse);
         req.on("error", onFail);
         open.push(req);
         return;
@@ -125,7 +131,7 @@ function openGet(url, env, tls, open, onResponse, onFail) {
     const connect = proxyLib.request({ ...target, method: "CONNECT", path: `${url.hostname}:${url.port || 443}`, headers: { ...auth, host: `${url.hostname}:${url.port || 443}` } });
     connect.on("connect", (res, socket) => {
         if (res.statusCode !== 200) { socket.destroy(); onFail(); return; }
-        const req = https.get(url, {
+        const req = https.get(bare, {
             headers, ...tls,
             createConnection: () => require("tls").connect({ socket, host: url.hostname.replace(/^\[|\]$/g, ""), servername: net.isIP(url.hostname.replace(/^\[|\]$/g, "")) ? undefined : url.hostname, ...tls })
         }, onResponse);
@@ -137,9 +143,19 @@ function openGet(url, env, tls, open, onResponse, onFail) {
     open.push(connect);
 }
 
+// npm's strict-ssl and cafile settings as TLS options.
+function npmTls(env) {
+    const t = {};
+    if (/^false$/i.test(env.npm_config_strict_ssl || "")) t.rejectUnauthorized = false;
+    if (env.npm_config_cafile) {
+        try { t.ca = [...require("tls").rootCertificates, fs.readFileSync(env.npm_config_cafile, "utf8")]; } catch { /* npm fails here too */ }
+    }
+    return t;
+}
+
 // npm dist-tags of sentinel-ir-mcp, or null when the registry does not answer in time.
 // Uses npm_config_registry and the proxy npm would use; follows up to 3 redirects.
-function fetchDistTags(env, timeoutMs = 3000, tls = {}) {
+function fetchDistTags(env, timeoutMs = 3000, tls = npmTls(env)) {
     return new Promise((resolve) => {
         let open = [];
         let done = false;
@@ -213,7 +229,8 @@ async function checkUpdate(io, add) {
         return;
     }
     const spec = `sentinel-ir-mcp@${tag}`;
-    const from = installKind(io.packageDir || PACKAGE_DIR, globalDirs(io.env, io.platform, io.execPath || process.execPath));
+    const globals = globalDirs(io.env, io.platform, io.execPath || process.execPath).flatMap((g) => [g, realDir(g)]);
+    const from = installKind(io.packageDir || PACKAGE_DIR, globals);
     const where = { npx: `the npx cache (${from.dir})`, global: `a global install (${from.dir})`, other: from.dir }[from.kind];
     const fix = {
         npx: `Close the client, delete that folder (npm 11: npm cache npx rm ${from.key}), then run: npx -y ${spec} setup`,
@@ -266,7 +283,7 @@ function staleNpxCopies(cacheDir) {
 function checkGlobalInstall(io, add) {
     const running = io.packageDir || PACKAGE_DIR;
     for (const dir of globalDirs(io.env, io.platform, io.execPath || process.execPath)) {
-        if (sameDir(dir, running) || !fs.existsSync(path.join(dir, "package.json"))) continue;
+        if (sameDir(dir, running) || sameDir(realDir(dir), realDir(running)) || !fs.existsSync(path.join(dir, "package.json"))) continue;
         const mcp = readVersion(path.join(dir, "package.json"));
         const ir = readVersion(path.join(dir, "node_modules", "sentinel-ir", "package.json"));
         if (!olderThan(mcp, version) && !olderThan(ir, IR_MIN)) continue;
