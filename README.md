@@ -28,6 +28,12 @@ of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.5.2** shortens the tool descriptions agents read: the risk scale is
+explained once per tool, `analyze_directory` states the defaults of `path`
+(the first allowed folder) and `recursive` (true; `false` scans only the top
+level), and `analyze_file` and `analyze_code` state the IR shape and when
+they refuse. No change to what the tools return.
+
 **0.5.1** makes sure an installed server gets fixes:
 
 - It needs `sentinel-ir` 0.5.6 or newer. 0.5.3–0.5.6 fix a comment between
