@@ -74,11 +74,12 @@ function globalDirs(env, platform, execPath) {
     const p = platform === "win32" ? path.win32 : path.posix;
     const nodePrefix = platform === "win32" ? p.dirname(execPath) : p.dirname(p.dirname(execPath));
     const home = env.HOME || env.USERPROFILE;
+    const cfg = (k) => env[`npm_config_${k}`] || env[`NPM_CONFIG_${k.toUpperCase()}`];
     // npm's prefix: environment, then user, global and builtin npmrc (Homebrew sets it there), then the default
     const builtinPrefix = npmrcPrefix(p.join(nodePrefix, ...(platform === "win32" ? [] : ["lib"]), "node_modules", "npm", "npmrc"), env, home);
-    const prefixes = [env.npm_config_prefix,
-        npmrcPrefix(env.npm_config_userconfig || (home ? p.join(home, ".npmrc") : ""), env, home),
-        npmrcPrefix(env.npm_config_globalconfig || p.join(builtinPrefix || nodePrefix, "etc", "npmrc"), env, home),
+    const prefixes = [cfg("prefix"),
+        npmrcPrefix(cfg("userconfig") || (home ? p.join(home, ".npmrc") : ""), env, home),
+        npmrcPrefix(cfg("globalconfig") || p.join(builtinPrefix || nodePrefix, "etc", "npmrc"), env, home),
         builtinPrefix,
         nodePrefix,
         platform === "win32" && env.APPDATA ? p.join(env.APPDATA, "npm") : null];

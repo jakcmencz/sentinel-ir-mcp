@@ -413,6 +413,7 @@ test("globalDirs reads npm's prefix from the user, global and builtin npmrc (Hom
         fs.writeFileSync(path.join(sb.home, ".npmrc"), "prefix=${PFX}/x\n");
         assert.equal(globalDirs({ HOME: sb.home, PFX: "/opt" }, "linux", node)[0], g("/opt/x"), "${VAR}");
         assert.equal(globalDirs({ HOME: sb.home, npm_config_prefix: "/env" }, "linux", node)[0], g("/env"), "environment first");
+        assert.equal(globalDirs({ HOME: sb.home, NPM_CONFIG_PREFIX: "/env" }, "linux", node)[0], g("/env"), "uppercase environment");
         fs.mkdirSync(path.join(sb.base, "brew", "etc"), { recursive: true });
         fs.writeFileSync(path.join(sb.base, "brew", "etc", "npmrc"), "prefix=/glob\n");
         assert.ok(globalDirs({}, "linux", node).includes(g("/glob")), "global npmrc under the builtin prefix");
