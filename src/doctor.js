@@ -64,6 +64,8 @@ function installKind(dir) {
 
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 
+const unescapeLogin = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
+
 // The proxy npm would use for url (npm config, then HTTPS_PROXY/HTTP_PROXY), or null.
 function proxyFor(url, env) {
     const noProxy = env.npm_config_noproxy || env.NO_PROXY || env.no_proxy || "";
@@ -94,13 +96,13 @@ function openGet(url, env, tls, open, onResponse, onFail) {
     }
     const proxyLib = proxy.protocol === "https:" ? https : http;
     const auth = proxy.username
-        ? { "proxy-authorization": "Basic " + Buffer.from(`${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`).toString("base64") }
+        ? { "proxy-authorization": "Basic " + Buffer.from(`${unescapeLogin(proxy.username)}:${unescapeLogin(proxy.password)}`).toString("base64") }
         : {};
     const target = { host: proxy.hostname.replace(/^\[|\]$/g, ""), port: proxy.port || (proxy.protocol === "https:" ? 443 : 80) };
     if (url.protocol === "http:") {
         const bare = new URL(url.href);
         bare.username = bare.password = "";
-        const login = url.username ? { authorization: "Basic " + Buffer.from(`${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`).toString("base64") } : {};
+        const login = url.username ? { authorization: "Basic " + Buffer.from(`${unescapeLogin(url.username)}:${unescapeLogin(url.password)}`).toString("base64") } : {};
         const req = proxyLib.get({ ...target, path: bare.href, headers: { ...headers, ...login, ...auth, host: bare.host } }, onResponse);
         req.on("error", onFail);
         open.push(req);

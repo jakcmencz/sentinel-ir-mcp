@@ -463,6 +463,8 @@ test("fetchDistTags goes through the proxy npm would use", async () => {
         assert.deepEqual(await fetchDistTags({ npm_config_registry: `http://tok:s%40cret@127.0.0.1:${rport}/`, HTTP_PROXY: P }), TAGS);
         assert.deepEqual(seen.pop(), ["GET", `${reg}-/package/sentinel-ir-mcp/dist-tags`, ""], "registry login is not in the proxied request line");
         assert.equal(lastAuth, "Basic " + Buffer.from("tok:s@cret").toString("base64"), "registry login sent as Authorization");
+        assert.deepEqual(await fetchDistTags({ npm_config_registry: `http://tok:50%@127.0.0.1:${rport}/`, HTTP_PROXY: `http://u:1%zz@127.0.0.1:${pport}` }), TAGS, "a literal % in a login");
+        assert.equal(lastAuth, "Basic " + Buffer.from("tok:50%").toString("base64"));
         seen.length = 0;
         assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: P, NO_PROXY: "example.com, 127.0.0.1" }), TAGS);
         assert.deepEqual(await fetchDistTags({ npm_config_registry: reg, HTTP_PROXY: P, no_proxy: "*" }), TAGS);
