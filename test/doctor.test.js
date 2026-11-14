@@ -433,7 +433,7 @@ test("fetchDistTags goes through the proxy npm would use", async () => {
     const registry = http.createServer((req, res) => { res.writeHead(200); res.end(JSON.stringify(TAGS)); });
     const rport = await listen(registry);
     const cert = tlsCert();
-    const tlsRegistry = cert && https.createServer(cert, (req, res) => { res.writeHead(200); res.end(JSON.stringify({ ...TAGS, tls: "1" })); });
+    const tlsRegistry = cert && https.createServer(cert, (req, res) => { if (req.url.startsWith("/hang/")) return; res.writeHead(200); res.end(JSON.stringify({ ...TAGS, tls: "1" })); });
     const tport = tlsRegistry && await listen(tlsRegistry);
     const proxy = http.createServer((req, res) => {
         seen.push(["GET", req.url, req.headers["proxy-authorization"] || ""]);
@@ -441,10 +441,12 @@ test("fetchDistTags goes through the proxy npm would use", async () => {
         const u = new URL(req.url);
         http.get({ host: u.hostname, port: u.port, path: u.pathname }, (r) => { res.writeHead(r.statusCode); r.pipe(res); });
     });
+    let tunnels = 0;
     proxy.on("connect", (req, socket) => {
+        if (req.url === "localhost:2") { tunnels++; socket.on("close", () => tunnels--); }
         seen.push(["CONNECT", req.url, req.headers["proxy-authorization"] || ""]);
         if (req.url.startsWith("deny")) { socket.end("HTTP/1.1 403 Forbidden\r\n\r\n"); return; }
-        const [host, port] = req.url === "localhost:1" ? ["localhost", tport] : req.url.split(":");
+        const [host, port] = /^localhost:[12]$/.test(req.url) ? ["localhost", tport] : req.url.split(":");
         const up = require("net").connect(+port, host === "localhost" ? "127.0.0.1" : host, () => { socket.write("HTTP/1.1 200 OK\r\n\r\n"); up.pipe(socket); socket.pipe(up); });
         up.on("error", () => socket.destroy());
     });
@@ -471,6 +473,9 @@ test("fetchDistTags goes through the proxy npm would use", async () => {
             assert.deepEqual(await fetchDistTags({ npm_config_registry: treg, HTTP_PROXY: P }, 3000, { ca: cert.cert }), { ...TAGS, tls: "1" }, "https falls back to HTTP_PROXY");
             assert.equal(await fetchDistTags({ npm_config_registry: treg, HTTPS_PROXY: P }), null, "certificate still checked through the tunnel");
             assert.equal(await fetchDistTags({ npm_config_registry: `https://deny:${tport}/`, HTTPS_PROXY: P }), null, "CONNECT refused");
+            assert.equal(await fetchDistTags({ npm_config_registry: "https://localhost:2/hang/", HTTPS_PROXY: P }, 300, { ca: cert.cert }), null);
+            await new Promise((r) => setTimeout(r, 100));
+            assert.equal(tunnels, 0, "timeout closes the tunneled request");
         }
     } finally { stop(registry, proxy, ...(tlsRegistry ? [tlsRegistry] : [])); }
 });

@@ -82,14 +82,15 @@ function proxyFor(url, env) {
     } catch { return null; }
 }
 
-// GET url directly or through proxy; calls back with the response. Returns the requests to destroy on timeout.
-function openGet(url, env, tls, onResponse, onFail) {
+// GET url directly or through proxy; calls back with the response. Adds every request it opens to open.
+function openGet(url, env, tls, open, onResponse, onFail) {
     const headers = { accept: "application/json" };
     const proxy = proxyFor(url, env);
     if (!proxy) {
         const req = (url.protocol === "https:" ? https : http).get(url, { headers, ...tls }, onResponse);
         req.on("error", onFail);
-        return [req];
+        open.push(req);
+        return;
     }
     const proxyLib = proxy.protocol === "https:" ? https : http;
     const auth = proxy.username
@@ -99,9 +100,9 @@ function openGet(url, env, tls, onResponse, onFail) {
     if (url.protocol === "http:") {
         const req = proxyLib.get({ ...target, path: url.href, headers: { ...headers, ...auth, host: url.host } }, onResponse);
         req.on("error", onFail);
-        return [req];
+        open.push(req);
+        return;
     }
-    const reqs = [];
     const connect = proxyLib.request({ ...target, method: "CONNECT", path: `${url.hostname}:${url.port || 443}`, headers: { ...auth, host: `${url.hostname}:${url.port || 443}` } });
     connect.on("connect", (res, socket) => {
         if (res.statusCode !== 200) { socket.destroy(); onFail(); return; }
@@ -110,12 +111,11 @@ function openGet(url, env, tls, onResponse, onFail) {
             createConnection: () => require("tls").connect({ socket, servername: url.hostname.replace(/^\[|\]$/g, ""), ...tls })
         }, onResponse);
         req.on("error", onFail);
-        reqs.push(req);
+        open.push(req);
     });
     connect.on("error", onFail);
     connect.end();
-    reqs.push(connect);
-    return reqs;
+    open.push(connect);
 }
 
 // npm dist-tags of sentinel-ir-mcp, or null when the registry does not answer in time.
@@ -134,7 +134,7 @@ function fetchDistTags(env, timeoutMs = 3000, tls = {}) {
         const timer = setTimeout(() => finish(null), timeoutMs);
         const get = (url, hops) => {
             if (url.protocol !== "http:" && url.protocol !== "https:") { finish(null); return; }
-            open.push(...openGet(url, env, tls, (res) => {
+            openGet(url, env, tls, open, (res) => {
                 if (REDIRECTS.has(res.statusCode) && res.headers.location && hops < 3) {
                     res.destroy();
                     let next;
@@ -155,7 +155,7 @@ function fetchDistTags(env, timeoutMs = 3000, tls = {}) {
                 });
                 res.on("error", () => finish(null));
                 res.on("aborted", () => finish(null));
-            }, () => finish(null)));
+            }, () => finish(null));
         };
         let url;
         try {
