@@ -55,7 +55,6 @@ function npxCopyDir(dir = PACKAGE_DIR) {
     return m ? m[1] : null;
 }
 
-// Where npm installs a global sentinel-ir-mcp: under npm's prefix setting, %APPDATA%\\npm, or next to node.
 // The prefix line of an npmrc file (npm's ${VAR} and ~/ expanded), or null.
 function npmrcPrefix(file, env, home) {
     let text;
@@ -69,6 +68,8 @@ function npmrcPrefix(file, env, home) {
     return v;
 }
 
+// Where npm installs a global sentinel-ir-mcp: the first entry is npm's prefix now; the rest are other
+// places a global install may sit (also %APPDATA%\\npm).
 function globalDirs(env, platform, execPath) {
     const p = platform === "win32" ? path.win32 : path.posix;
     const nodePrefix = platform === "win32" ? p.dirname(execPath) : p.dirname(p.dirname(execPath));
@@ -79,8 +80,8 @@ function globalDirs(env, platform, execPath) {
         npmrcPrefix(env.npm_config_userconfig || (home ? p.join(home, ".npmrc") : ""), env, home),
         npmrcPrefix(env.npm_config_globalconfig || p.join(builtinPrefix || nodePrefix, "etc", "npmrc"), env, home),
         builtinPrefix,
-        platform === "win32" && env.APPDATA ? p.join(env.APPDATA, "npm") : null,
-        nodePrefix];
+        nodePrefix,
+        platform === "win32" && env.APPDATA ? p.join(env.APPDATA, "npm") : null];
     const dirs = prefixes.filter(Boolean).map((x) => p.join(x, ...(platform === "win32" ? [] : ["lib"]), "node_modules", "sentinel-ir-mcp"));
     return [...new Set(dirs)];
 }
@@ -336,7 +337,8 @@ function staleNpxCopies(cacheDir) {
 // bare `npx sentinel-ir-mcp` and client entries without a version start it.
 function checkGlobalInstall(io, add) {
     const running = io.packageDir || PACKAGE_DIR;
-    for (const dir of globalDirs(io.env, io.platform, io.execPath || process.execPath)) {
+    // only npm's current prefix: bare npx starts the global install there, not one left under an old prefix
+    for (const dir of globalDirs(io.env, io.platform, io.execPath || process.execPath).slice(0, 1)) {
         if (sameDir(dir, running) || sameDir(realDir(dir), realDir(running)) || !fs.existsSync(path.join(dir, "package.json"))) continue;
         const mcp = readVersion(path.join(dir, "package.json"));
         const ir = readVersion(path.join(dir, "node_modules", "sentinel-ir", "package.json"));

@@ -377,10 +377,14 @@ test("doctor finds an old global install that bare npx starts, also under a Wind
         put(path.join(prefix, "lib", "node_modules", "sentinel-ir-mcp"), version, IR_MIN);
         assert.deepEqual(byId((await doctorJson(sb, [], { env: { npm_config_prefix: prefix } })).report, "package.global"), [], "current global copy");
         assert.deepEqual(byId((await doctorJson(sb, [])).report, "package.global"), [], "no global copy");
+        fs.writeFileSync(path.join(sb.home, ".npmrc"), `prefix=${path.join(sb.base, "newprefix")}\n`);
+        put(path.join(prefix, "lib", "node_modules", "sentinel-ir-mcp"), "0.3.0", "0.3.1");
+        assert.deepEqual(byId((await doctorJson(sb, [], { io: { execPath: path.join(prefix, "bin", "node") } })).report, "package.global"), [], "an old copy under a prefix npm no longer uses");
+        assert.equal(byId((await doctorJson(sb, [], { env: { npm_config_prefix: prefix } })).report, "package.global").length, 1);
         const nvm = "C:\\nvm4w\\nodejs";
         assert.equal(installKind(`${nvm}\\node_modules\\sentinel-ir-mcp`, globalDirs({}, "win32", `${nvm}\\node.exe`)).kind, "global");
         assert.deepEqual(globalDirs({ APPDATA: "C:\\U\\AppData\\Roaming" }, "win32", `${nvm}\\node.exe`),
-            ["C:\\U\\AppData\\Roaming\\npm\\node_modules\\sentinel-ir-mcp", `${nvm}\\node_modules\\sentinel-ir-mcp`]);
+            [`${nvm}\\node_modules\\sentinel-ir-mcp`, "C:\\U\\AppData\\Roaming\\npm\\node_modules\\sentinel-ir-mcp"]);
         assert.deepEqual(globalDirs({}, "linux", "/usr/bin/node"), ["/usr/lib/node_modules/sentinel-ir-mcp"]);
         const linked = path.join(sb.base, "linked");
         fs.mkdirSync(linked);
