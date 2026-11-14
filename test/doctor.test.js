@@ -355,7 +355,7 @@ test("fetchDistTags reads the registry from npm_config_registry and gives up on 
         if (mode === "slow") return; // never answers
         if (mode === "500") { res.writeHead(500); return res.end("{}"); }
         if (mode === "junk") { res.writeHead(200); return res.end("not json"); }
-        if (mode === "huge") { res.writeHead(200); return res.end("[" + "1,".repeat(70000) + "1]"); }
+        if (mode === "huge") { res.writeHead(200); return res.end(JSON.stringify({ latest: "0.5.3", pad: "x".repeat(70000) })); }
         assert.equal(req.url, "/npm/-/package/sentinel-ir-mcp/dist-tags");
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ latest: "0.5.3", "stable-0.5": "0.5.3" }));

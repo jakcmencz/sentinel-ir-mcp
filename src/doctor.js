@@ -75,7 +75,7 @@ function fetchDistTags(env, timeoutMs = 3000) {
             if (res.statusCode !== 200) { res.resume(); resolve(null); return; }
             let body = "";
             res.setEncoding("utf8");
-            res.on("data", (d) => { body += d; if (body.length > 65536) req.destroy(); });
+            res.on("data", (d) => { body += d; if (body.length > 65536) { resolve(null); req.destroy(); } });
             res.on("end", () => {
                 try {
                     const tags = JSON.parse(body);
