@@ -28,6 +28,14 @@ of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.5.9** fixes what a second user test (0.5.8) found:
+
+- `analyze_directory` summaries list `forbidden` for a file that did not
+  parse but shows a dangerous capability, so a `critical` broken file says why.
+- `log` says `incomplete: unsupported language` for `analyze_code` with a
+  `target` like `x.rb`, not `broken code`; a `file://` URL to another machine
+  is logged as `not a local file path` instead of the whole error.
+
 **0.5.8** fixes what a user test of 0.5.7 on Linux, macOS and Windows found:
 
 - A path outside the allowed folders is refused with the same `Access denied`
