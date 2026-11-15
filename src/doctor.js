@@ -357,7 +357,7 @@ function checkNpxCache(env, platform, add) {
         return;
     }
     for (const c of stale) {
-        add("warn", "npx.cache", `npx keeps starting a cached ${c.spec} (sentinel-ir-mcp ${c.mcp}, sentinel-ir ${c.ir}) from ${c.dir}; sentinel-ir older than ${IR_MIN} misses security fixes`,
+        add("warn", "npx.cache", `The npx cache still holds ${c.spec} (sentinel-ir-mcp ${c.mcp}, sentinel-ir ${c.ir}) in ${c.dir}; a client entry with that version or range keeps starting it, and sentinel-ir older than ${IR_MIN} misses security fixes`,
             `Close the client, delete that folder (npm 11: npm cache npx rm ${c.key}), then run: npx -y ${PACKAGE_SPEC} setup`);
     }
 }
@@ -583,7 +583,7 @@ async function runDoctor(opts, io) {
     const summaries = configured.length > 1 ? configured : [{ label: "", folders, exclude, audit, auditBroken }];
     for (const c of summaries) {
         const t = tag(c.label);
-        for (const line of describeExcluded(c.exclude, c.folders, SKIP_DIRS)) add("ok", "exclude", t + line);
+        for (const line of describeExcluded(c.exclude, c.folders, SKIP_DIRS)) add(line.includes("matches nothing") ? "warn" : "ok", "exclude", t + line);
         if (c.audit) add("ok", "audit", `${t}Audit log: on, in ${c.audit.path} (${describeAuditFolder(c.audit.path)}); see it: npx -y ${PACKAGE_SPEC} log${c.audit.dir ? ` --dir "${c.audit.dir}"` : ""}`);
         else if (!c.auditBroken) add("ok", "audit", `${t}Audit log: off (turn it on: npx -y ${PACKAGE_SPEC} setup --audit-log)`);
     }

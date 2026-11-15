@@ -123,7 +123,7 @@ test("every tool call is logged with its outcome, never with source code", async
         const view = await cli(sb, "log", ["--dir", sb.logs]);
         assert.equal(view.code, 0);
         assert.match(view.stdout, /\[audit-test-client\] REFUSED file secrets\/key\.js: excluded by your settings/);
-        assert.match(view.stdout, /REFUSED file \.\.\/home\/x\.js: outside the project folder/);
+        assert.match(view.stdout, /REFUSED file \.\.\/home\/x\.js: outside the allowed folders/);
         assert.match(view.stdout, /file danger\.js: critical/);
         assert.match(view.stdout, /pasted code \(\d+ bytes, typescript\): critical/);
         assert.match(view.stdout, /folder \.: 2 file\(s\) \(1 critical, 1 low\), 1 excluded, 1 not read \(too large or unreadable\), sha256 of 2 file\(s\) in log --json\n {4}critical danger\.js sha256 [0-9a-f]{12}\n/);
