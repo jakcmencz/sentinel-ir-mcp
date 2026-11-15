@@ -227,6 +227,7 @@ function summaryEntry(rel, ir) {
     };
     if (signals.length > SUMMARY_SIGNALS) entry.moreRiskSignals = signals.length - SUMMARY_SIGNALS;
     if (ir.facts.parseError) entry.parseError = ir.facts.parseError;
+    if (ir.analysisStatus !== "complete" && ir.forbidden?.length) entry.forbidden = ir.forbidden;
     return entry;
 }
 

@@ -172,7 +172,8 @@ Also uses `sentinel-ir` 0.4.5 (Python parse errors point where Python does).
 
 - **Short entries:** each file is `{path, risk, analysisStatus, language,
   lines, operations, riskSignals}`, plus `moreRiskSignals` and `parseError`
-  when they apply. `riskSignals` are up to 3 `kind:code@line` signals that set
+  when they apply, and (since 0.5.9) `forbidden` for a file that did not parse
+  but shows a dangerous capability. `riskSignals` are up to 3 `kind:code@line` signals that set
   the file's risk level (code cut to 120 characters). `analyze_file` still
   returns the full IR; `detail: "full"` returns the 0.4.1 entries.
 

@@ -73,6 +73,7 @@ function refusalReason(err) {
     if (m.includes("hard links")) return "hardlink";
     if (m.endsWith("is a symlink")) return "symlink";
     if (m.startsWith("Unsupported file type")) return "unsupported";
+    if (m.startsWith("path must be a file path")) return "url";
     return "refused";
 }
 
@@ -214,4 +215,4 @@ function createServer(options = {}) {
     return server;
 }
 
-module.exports = { createServer, DEFAULT_LIMITS };
+module.exports = { createServer, DEFAULT_LIMITS, refusalReason };

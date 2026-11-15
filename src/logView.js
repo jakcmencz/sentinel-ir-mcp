@@ -22,7 +22,8 @@ const REASONS = {
     "no-folders": "no project folder is set",
     hardlink: "file has several hard links",
     symlink: "symlink",
-    unsupported: "unsupported file type"
+    unsupported: "unsupported file type",
+    url: "not a local file path"
 };
 
 const TOOL_WORDS = { analyze_file: "file", analyze_directory: "folder", analyze_code: "pasted code" };
@@ -70,7 +71,8 @@ function describe(e) {
         if (Array.isArray(e.top)) for (const f of e.top) if (f) lines.push(`    ${safe(f.risk).padEnd(8)} ${safe(f.path)}${shortHash(f.sha256)}`);
         return lines;
     }
-    const incomplete = e.analysisStatus && e.analysisStatus !== "complete" ? " (incomplete: broken code)" : "";
+    const why = e.language === "unknown" ? "unsupported language" : "broken code";
+    const incomplete = e.analysisStatus && e.analysisStatus !== "complete" ? ` (incomplete: ${why})` : "";
     return [`${target}: ${safe(e.risk)}${incomplete}${shortHash(e.sha256)}`];
 }
 
