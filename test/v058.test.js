@@ -7,7 +7,7 @@ const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
 const { pathToFileURL } = require("url");
-const { resolveInside, plainPath, isSourceFile } = require("../src/paths");
+const { resolveInside, plainPath, isSourceFile, canonicalRoots } = require("../src/paths");
 const { analyzeCode, analyzeFile } = require("../src/analyze");
 const { describe } = require("../src/logView");
 const { runCommand } = require("../src/cli");
@@ -38,6 +38,17 @@ test("Windows \\\\?\\ paths and file:// URIs become plain paths", () => {
     assert.equal(plainPath("file:///tmp/a%20b/%C4%8D.js", "linux"), "/tmp/a b/č.js");
     assert.throws(() => plainPath("file://host/x.js", "linux"), /path must be a file path, not a URL/);
     assert.equal(plainPath("src/a.js", "win32"), "src/a.js");
+});
+
+test("a \\\\?\\ root on Windows takes plain and namespaced paths inside it", { skip: process.platform !== "win32" }, () => {
+    const fx = makeFixture();
+    try {
+        const roots = canonicalRoots(["\\\\?\\" + fx.project]);
+        assert.deepEqual(roots, [fs.realpathSync(fx.project)]);
+        const file = fs.readdirSync(fx.project).find((n) => n.endsWith(".js") && !n.startsWith("link"));
+        assert.ok(resolveInside("\\\\?\\" + path.join(fx.project, file), roots).real);
+        assert.ok(resolveInside(file, roots).real);
+    } finally { fx.cleanup(); }
 });
 
 test("analyze_file takes a file:// URI inside the folder", async () => {

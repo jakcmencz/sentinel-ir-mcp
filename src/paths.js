@@ -64,7 +64,7 @@ function canonicalRoots(dirs) {
     const out = [];
     for (const dir of dirs) {
         try {
-            const real = fs.realpathSync(path.resolve(dir));
+            const real = plainPath(fs.realpathSync(path.resolve(plainPath(dir))));
             if (fs.statSync(real).isDirectory() && !out.includes(real)) out.push(real);
         } catch {
             // ignore missing roots
