@@ -4,6 +4,7 @@ const fs = require("fs");
 const http = require("http");
 const https = require("https");
 const net = require("net");
+const crypto = require("crypto");
 const path = require("path");
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
@@ -306,6 +307,18 @@ function npmCacheDir(env, platform) {
     return path.join(homeOf(env), ".npm");
 }
 
+const TAG_SPEC = /^sentinel-ir-mcp(@(latest|stable-\d+\.\d+))?$/;
+
+// npx names its folder after the first 16 hex digits of sha512 of the spec it
+// was given; the candidates a client entry or a README command would contain.
+function npxSpec(key, mcp) {
+    const [major, minor] = String(mcp).split(".");
+    const candidates = ["sentinel-ir-mcp", "sentinel-ir-mcp@latest", `sentinel-ir-mcp@stable-${major}.${minor}`,
+        `sentinel-ir-mcp@${major}.${minor}`, `sentinel-ir-mcp@${major}`, `sentinel-ir-mcp@${mcp}`,
+        `sentinel-ir-mcp@^${mcp}`, `sentinel-ir-mcp@~${mcp}`, `sentinel-ir-mcp@${major}.${minor}.x`];
+    return candidates.find((c) => crypto.createHash("sha512").update(c).digest("hex").slice(0, 16) === key) || null;
+}
+
 // Copies of sentinel-ir-mcp that npx cached and whose sentinel-ir is older
 // than this release needs. npx keeps starting such a copy for its spec.
 function staleNpxCopies(cacheDir) {
@@ -321,15 +334,12 @@ function staleNpxCopies(cacheDir) {
         // npx folder needs a different sentinel-ir at the top level.
         const nested = path.join(mod, "sentinel-ir-mcp", "node_modules", "sentinel-ir", "package.json");
         const ir = readVersion(fs.existsSync(nested) ? nested : path.join(mod, "sentinel-ir", "package.json"));
-        if (!olderThan(ir, IR_MIN)) continue;
-        let spec = "sentinel-ir-mcp";
-        try {
-            const pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
-            const named = pkg._npx && Array.isArray(pkg._npx.packages) && pkg._npx.packages.find((p) => /^sentinel-ir-mcp(@|$)/.test(p));
-            if (named) spec = named;
-            else if (pkg.dependencies && typeof pkg.dependencies["sentinel-ir-mcp"] === "string") spec = `sentinel-ir-mcp@${pkg.dependencies["sentinel-ir-mcp"]}`;
-        } catch { /* keep the bare name */ }
-        stale.push({ key, dir, spec, mcp: readVersion(path.join(mod, "sentinel-ir-mcp", "package.json")), ir });
+        const mcp = readVersion(path.join(mod, "sentinel-ir-mcp", "package.json"));
+        if (!olderThan(ir, IR_MIN) && !olderThan(mcp, version)) continue;
+        const spec = npxSpec(key, mcp);
+        // npx looks a tag up again on every start, so such a copy updates itself.
+        if (spec && TAG_SPEC.test(spec)) continue;
+        stale.push({ key, dir, spec, mcp, ir });
     }
     return stale;
 }
@@ -349,16 +359,17 @@ function checkGlobalInstall(io, add) {
     }
 }
 
-function checkNpxCache(env, platform, add) {
+function checkNpxCache(env, platform, add, setupHint) {
     const cacheDir = npmCacheDir(env, platform);
     const stale = staleNpxCopies(cacheDir);
     if (stale.length === 0) {
-        add("ok", "npx.cache", `npx cache (${path.join(cacheDir, "_npx")}): no copy with sentinel-ir older than ${IR_MIN}`);
+        add("ok", "npx.cache", `npx cache (${path.join(cacheDir, "_npx")}): no pinned copy older than sentinel-ir-mcp ${version} / sentinel-ir ${IR_MIN}`);
         return;
     }
     for (const c of stale) {
-        add("warn", "npx.cache", `The npx cache still holds ${c.spec} (sentinel-ir-mcp ${c.mcp}, sentinel-ir ${c.ir}) in ${c.dir}; a client entry with that version or range keeps starting it, and sentinel-ir older than ${IR_MIN} misses security fixes`,
-            `Close the client, delete that folder (npm 11: npm cache npx rm ${c.key}), then run: npx -y ${PACKAGE_SPEC} setup`);
+        const who = c.spec ? `a client entry with ${c.spec} keeps starting it` : "a client entry with the version or range it was downloaded for keeps starting it";
+        add("warn", "npx.cache", `The npx cache still holds sentinel-ir-mcp ${c.mcp} (sentinel-ir ${c.ir}) in ${c.dir}; ${who}, and versions older than sentinel-ir-mcp ${version} / sentinel-ir ${IR_MIN} miss fixes`,
+            `Close the client, delete that folder (npm 11: npm cache npx rm ${c.key}), then run: npx -y ${PACKAGE_SPEC} setup ${setupHint}`);
     }
 }
 
@@ -510,7 +521,9 @@ async function checkHandshake(folders, exclude, audit, add, timeoutMs) {
         if (folders.length) {
             const r = await withTimeout(client.callTool({ name: "analyze_directory", arguments: { path: folders[0], max_files: 1 } }), timeoutMs, "analyze_directory");
             if (r.isError) add("fail", "mcp.call", `analyze_directory failed: ${r.content[0].text}`, "Check that the folder is readable.");
-            else add("ok", "mcp.call", `analyze_directory works on ${folders[0]} (${r.structuredContent.analyzed} file(s) checked)`);
+            else if (r.structuredContent.analyzed > 0) add("ok", "mcp.call", `analyze_directory works on ${folders[0]} (${r.structuredContent.analyzed} file(s) checked)`);
+            else add("warn", "mcp.call", `analyze_directory answered on ${folders[0]} but checked no file`,
+                "The folder has no .js/.ts/.py/.rs file it may read (hard links, files over the size limit and excluded files are skipped); point --project at your source folder.");
         }
     } catch (e) {
         add("fail", "mcp.handshake", `MCP connection failed: ${e.message}`, `Run npx -y ${PACKAGE_SPEC} --help to see whether the package starts.`);
@@ -531,6 +544,7 @@ const MARK = { ok: "[ok]  ", warn: "[warn]", fail: "[FAIL]", skip: "[skip]" };
 async function runDoctor(opts, io) {
     const checks = [];
     const add = (status, id, message, fix) => checks.push(fix ? { status, id, message, fix } : { status, id, message });
+    const setupHint = opts.client ? `--client ${opts.client}${opts.global ? " --global" : ""}` : "--client <your client>";
 
     const nodeVersion = io.nodeVersion || process.versions.node;
     if (Number(nodeVersion.split(".")[0]) >= 20) add("ok", "node", `Node.js v${nodeVersion}`);
@@ -538,11 +552,11 @@ async function runDoctor(opts, io) {
     const ir = irVersion();
     if (olderThan(ir, IR_MIN)) {
         add("fail", "package", `sentinel-ir-mcp ${version} runs sentinel-ir ${ir}, needs ${IR_MIN} or newer`,
-            npxCopyDir() ? `Close the client, delete ${npxCopyDir()}, then run: npx -y ${PACKAGE_SPEC} setup` : `Reinstall it so that npm installs sentinel-ir ${dependencies["sentinel-ir"]}.`);
+            npxCopyDir() ? `Close the client, delete ${npxCopyDir()}, then run: npx -y ${PACKAGE_SPEC} setup ${setupHint}` : `Reinstall it so that npm installs sentinel-ir ${dependencies["sentinel-ir"]}.`);
     } else add("ok", "package", `sentinel-ir-mcp ${version}, sentinel-ir ${ir}`);
     await checkUpdate(io, add);
     checkGlobalInstall(io, add);
-    checkNpxCache(io.env, io.platform, add);
+    checkNpxCache(io.env, io.platform, add, setupHint);
 
     const project = path.resolve(io.cwd, opts.project || ".");
     if (opts.client && !Object.prototype.hasOwnProperty.call(CLIENTS, opts.client)) {
@@ -580,12 +594,14 @@ async function runDoctor(opts, io) {
             folders = [];
         }
     }
-    const summaries = configured.length > 1 ? configured : [{ label: "", folders, exclude, audit, auditBroken }];
+    const ownList = opts.client && CLIENTS[opts.client] && CLIENTS[opts.client].kind === "command";
+    const summaries = ownList ? [] : configured.length > 1 ? configured : [{ label: "", folders, exclude, audit, auditBroken }];
+    if (ownList) add("skip", "exclude", `Exclusions and audit log: doctor cannot read ${CLIENTS[opts.client].label}'s entry; they are the --exclude / --audit-log options in it. The test below runs without them.`);
     for (const c of summaries) {
         const t = tag(c.label);
         for (const line of describeExcluded(c.exclude, c.folders, SKIP_DIRS)) add(line.includes("matches nothing") ? "warn" : "ok", "exclude", t + line);
         if (c.audit) add("ok", "audit", `${t}Audit log: on, in ${c.audit.path} (${describeAuditFolder(c.audit.path)}); see it: npx -y ${PACKAGE_SPEC} log${c.audit.dir ? ` --dir "${c.audit.dir}"` : ""}`);
-        else if (!c.auditBroken) add("ok", "audit", `${t}Audit log: off (turn it on: npx -y ${PACKAGE_SPEC} setup --audit-log)`);
+        else if (!c.auditBroken) add("ok", "audit", `${t}Audit log: off (turn it on: npx -y ${PACKAGE_SPEC} setup ${setupHint} --audit-log)`);
     }
     if (configured.length > 1) add("ok", "mcp.settings", `The connection test below uses the ${configured[0].label} settings; check another client with --client.`);
     await checkHandshake(folders, exclude, audit, add, opts.timeoutMs || 30000);

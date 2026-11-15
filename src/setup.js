@@ -171,8 +171,8 @@ async function chooseAuditLog(opts, io, previous, project) {
     }
 }
 
-function describeAudit(audit, io) {
-    if (!audit) return `Audit log: off (turn it on with: npx -y ${PACKAGE_SPEC} setup --audit-log)
+function describeAudit(audit, io, hint = "") {
+    if (!audit) return `Audit log: off (turn it on with: npx -y ${PACKAGE_SPEC} setup${hint} --audit-log)
 `;
     const dir = audit.dir || defaultAuditDir(io.env, io.platform);
     return `Audit log: on, in ${dir} (only what the agent asked for and the results, never your code)
@@ -239,7 +239,7 @@ async function runSetup(opts, io) {
             }
             out(`Access: ${project} (only this folder, read-only)\n`);
             out(describeExcluded(exclude, [project], SKIP_DIRS).join("\n") + "\n");
-            out(describeAudit(audit, io));
+            out(describeAudit(audit, io, ` --client ${client}`));
             out(`Then check the connection${io.platform === "win32" ? " (PowerShell)" : ""}: npx -y ${PACKAGE_SPEC} doctor --client ${client} --project ${hintArg(project, io.platform)}\n`);
             out(percentNote(project));
             return 0;
@@ -258,7 +258,7 @@ async function runSetup(opts, io) {
         const plan = planFileChange(file, serverEntry(folder, io.platform, exclude, audit), seed);
         out(describePlan(client, plan, project));
         out(describeExcluded(exclude, [project], SKIP_DIRS).join("\n") + "\n");
-        out(describeAudit(audit, io));
+        out(describeAudit(audit, io, ` --client ${client}${opts.global ? " --global" : ""}`));
         out(percentNote(project));
 
         if (plan.action === "unchanged") {

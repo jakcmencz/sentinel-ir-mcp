@@ -36,7 +36,7 @@ test("Windows \\\\?\\ paths and file:// URIs become plain paths", () => {
     assert.equal(plainPath("\\\\?\\UNC\\srv\\share\\a.js", "win32"), "\\\\srv\\share\\a.js");
     assert.equal(plainPath("\\\\?\\C:\\p\\a.js", "linux"), "\\\\?\\C:\\p\\a.js");
     assert.equal(plainPath("file:///tmp/a%20b/%C4%8D.js", "linux"), "/tmp/a b/č.js");
-    assert.throws(() => plainPath("file://host/x.js", "linux"), /path must be a file path, not a URL/);
+    assert.throws(() => plainPath("file://host/x.js", "linux"), /Not a file path: file:\/\/host\/x\.js is a URL/);
     assert.equal(plainPath("src/a.js", "win32"), "src/a.js");
 });
 

@@ -9,8 +9,7 @@ env reads and network/filesystem/process/crypto calls. It reads files only.
 Recommended order:
 1. Call analyze_directory on the project (or a sub-folder) first.
 2. Look at "incomplete", "skipped.unreadable" and "skipped.hardlinks" before
-   anything else. Those
-   files were not fully analyzed: a low risk there is NOT evidence of safety.
+   anything else. Those files were not fully analyzed: a low risk there is NOT evidence of safety.
    Read their raw source if they matter. If "timedOut" is true, the files in
    "notAnalyzed" were not analyzed at all: call analyze_directory on a
    sub-folder or analyze_file for them.

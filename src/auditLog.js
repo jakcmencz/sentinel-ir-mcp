@@ -135,6 +135,7 @@ function describeCall(tool, args, outcome) {
         const notRead = r.skipped.tooLarge.length + r.skipped.unreadable.length + r.skipped.hardlinks.length;
         if (notRead) entry.notRead = notRead;
         if (r.skipped.hardlinks.length) entry.hardlinks = r.skipped.hardlinks.length;
+        if (r.skipped.symlinks) entry.symlinks = r.skipped.symlinks;
         if (r.truncated) entry.truncated = true;
         if (r.timedOut) entry.timedOut = true;
         // sha256 of every analyzed file, so the user can check later which

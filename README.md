@@ -22,12 +22,28 @@ source only of the files that matter.
 (`.rs`; since 0.5.0). The
 language is picked from the file extension, so `analyze_file` refuses a file
 without one (a shell script, `Makefile`); `analyze_code` also takes `target`
-or an explicit `language` (`javascript` | `typescript` | `tsx` | `python` | `rust`). Every result carries `language` and
+or an explicit `language` (`javascript`/`js`, `typescript`/`ts`, `tsx`,
+`python`/`py`, `rust`/`rs`; case-insensitive since 0.5.10). Every result carries `language` and
 `analysisStatus`; a file that does not parse cleanly (including JSX in a `.ts`
 file) is `"incomplete"`, and a low risk on an incomplete result is not evidence
 of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
+
+**0.5.10** fixes what a third user test (0.5.9) found:
+
+- `doctor --client vscode` / `claude-code` no longer reports "Excluded:
+  nothing" and "Audit log: off": those clients keep their own server list,
+  so doctor says it cannot read them.
+- `doctor` names the spec npx keeps an old cached copy for (e.g. `@0.5.8`),
+  also warns about old copies whose `sentinel-ir` is new enough, and skips
+  `@stable-0.5` / `@latest` copies that npx refreshes by itself.
+- `doctor` warns when the test call checked no file instead of reporting it
+  as working; copy-paste fixes keep `--client` (and `--global`).
+- URL refusals read `Not a file path: … is a URL`; `data:`, `mailto:` and
+  `javascript:` are refused as URLs too.
+- `log` shows the incomplete and skipped-symlink counts of a folder call.
+- `analyze_code` takes `language` in any case (`"JS"`, `"Python"`).
 
 **0.5.9** fixes what a second user test (0.5.8) found:
 
@@ -358,7 +374,8 @@ Open Cursor Settings → Customize → MCPs and turn on the switch next to
 (`sentinel-ir-mcp@0.5`, `@0.2`, ...) and keeps starting that copy, together
 with the `sentinel-ir` it got then, even when newer versions are on npm
 (measured with npm 10.8.2, 10.8.3, 10.9.9 and 11.21.2; on npm 10
-`--prefer-online` and `npm cache clean --force` did not change it). The tag
+`--prefer-online` and `npm cache clean --force` did not change it; other npm
+versions may refresh a range, a pinned version such as `@0.5.8` never changes). The tag
 `setup` writes since 0.5.1 (`@stable-0.5`) is looked up again on every start
 instead. If a client still starts an old copy:
 
@@ -501,7 +518,7 @@ server through `cmd`). Then read it with `log --dir <folder>`.
   result (risk, `analysisStatus`, file counts, up to 20 `critical`/`high` file
   paths of a folder) or why it was refused (`excluded`, `outside`,
   `not-found`, `too-large`, `hardlink`, `symlink`, `unsupported`,
-  `not-a-file`, `url`, `no-folders`), and the duration. A line when the server starts.
+  `not-a-file`, `not-a-folder`, `url`, `no-folders`), and the duration. A line when the server starts.
 - **Which version of a file (0.4.5):** for every file the server read, the
   SHA-256 of the exact bytes it analyzed: `sha256` for `analyze_file`; for
   `analyze_directory` the folder line gets a `call` id and `hashed` count,
@@ -561,6 +578,12 @@ sentinel-ir-mcp [--exclude <name>]... [--audit-log[=<folder>]] [--max-file-bytes
   or, without folder arguments, inside one of the client's MCP roots. `../`,
   absolute paths elsewhere and symlinks pointing outside are refused, with the
   same answer whether or not the path exists (since 0.5.8).
+- **Local paths only.** URLs (`http://…`, `data:`, `mailto:`, `file:src/x.js`),
+  network paths (`\\server\share\x.js`, `//server/share/x.js`) and
+  `file://server/…` are refused as `Not a file path: … is a URL` or as
+  outside the allowed folders before any file system call, so Windows does
+  not open an SMB connection to another machine (since 0.5.9). Local
+  `file:///…` paths work.
 - **Exclusions are yours.** They come only from the command line the client
   starts (written by `setup`), never from the agent or from files in the
   project. Excluded paths are refused by `analyze_file` and counted, not
@@ -616,7 +639,8 @@ the same 17.8 KB JavaScript file, about 107 MB in total, Node 24):
 
 Three runtime dependencies: the official
 [`@modelcontextprotocol/sdk`](https://www.npmjs.com/package/@modelcontextprotocol/sdk),
-`zod` (its schema peer dependency) and `sentinel-ir`. With their own
+`zod` (its schema peer dependency) and `sentinel-ir` (0.5.9 or newer;
+`doctor` fails when an older copy is loaded). With their own
 dependencies that is about 100 packages in `node_modules`; `npm audit`
 reported 0 vulnerabilities at release time (0.4.0: after updating
 `body-parser` to 2.4.0 in the lock file). Unlike `sentinel-ir` itself,
