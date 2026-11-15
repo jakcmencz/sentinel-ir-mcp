@@ -154,3 +154,11 @@ test("--max-file-bytes refuses larger files and skips them in folders", async ()
         await small.close();
     }
 });
+
+test("analyze_code takes the language in any case", async () => {
+    const r = await call(client, "analyze_code", { code: "import os\nos.system('x')\n", language: "PY" });
+    assert.equal(r.isError, undefined);
+    assert.equal(r.structuredContent.language, "python");
+    const bad = await call(client, "analyze_code", { code: "x", language: "Ruby" });
+    assert.equal(bad.isError, true);
+});

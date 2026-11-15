@@ -22,7 +22,8 @@ source only of the files that matter.
 (`.rs`; since 0.5.0). The
 language is picked from the file extension, so `analyze_file` refuses a file
 without one (a shell script, `Makefile`); `analyze_code` also takes `target`
-or an explicit `language` (`javascript` | `typescript` | `tsx` | `python` | `rust`). Every result carries `language` and
+or an explicit `language` (`javascript`/`js`, `typescript`/`ts`, `tsx`,
+`python`/`py`, `rust`/`rs`; case-insensitive since 0.5.10). Every result carries `language` and
 `analysisStatus`; a file that does not parse cleanly (including JSX in a `.ts`
 file) is `"incomplete"`, and a low risk on an incomplete result is not evidence
 of safety. Other languages are not supported yet. What is detected in Python
@@ -42,6 +43,7 @@ and Rust (and what is not) is listed in the
 - URL refusals read `Not a file path: … is a URL`; `data:`, `mailto:` and
   `javascript:` are refused as URLs too.
 - `log` shows the incomplete and skipped-symlink counts of a folder call.
+- `analyze_code` takes `language` in any case (`"JS"`, `"Python"`).
 
 **0.5.9** fixes what a second user test (0.5.8) found:
 
