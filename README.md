@@ -17,7 +17,7 @@ environment reads, network / filesystem / process / crypto calls) in a few
 hundred characters. The agent can triage a folder first and then read the raw
 source only of the files that matter.
 
-**Supported:** JavaScript (`.js`, `.mjs`, `.cjs`), TypeScript (`.ts`, `.mts`,
+**Supported:** JavaScript (`.js`, `.mjs`, `.cjs`, `.jsx`; `.jsx` since 0.5.8), TypeScript (`.ts`, `.mts`,
 `.cts`, `.tsx`; since 0.2.0), Python (`.py`, `.pyi`; since 0.3.0) and Rust
 (`.rs`; since 0.5.0). The
 language is picked from the file extension; `analyze_code` also takes `target`
@@ -27,6 +27,27 @@ file) is `"incomplete"`, and a low risk on an incomplete result is not evidence
 of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
+
+**0.5.8** fixes what a user test of 0.5.7 on Linux, macOS and Windows found:
+
+- A path outside the allowed folders is refused with the same `Access denied`
+  whether or not it exists. Before, a missing path answered `Not found`, so an
+  agent could find out which files exist outside the project. A dangling
+  symlink is refused too. Windows `\\?\C:\...` paths are read as plain paths
+  on every Node version (Node 20/22 and 24 answered differently).
+- `analyze_code` with a `target` of another language (`x.rb`, `main.go`) is
+  `incomplete`, `language: "unknown"` (sentinel-ir 0.5.8), not a `complete`
+  JavaScript result that could read as `low`.
+- `.jsx` files are read, as `sentinel-ir` already supported them.
+- `file://` URIs are accepted as paths; a URL with a host is refused with a
+  clear message instead of `Not found`.
+- `doctor` without `--client` shows the exclusions and the audit log of every
+  configured client (it showed only the first one's).
+- `log | head` ends quietly instead of an `EPIPE` stack trace.
+- The audit log names hard-link, symlink and unsupported-type refusals in
+  short words like the others.
+- Needs `sentinel-ir` 0.5.8 (better parse-error positions for Rust and TSX,
+  `forbidden` filled for broken Python and Rust, TypeScript declarations).
 
 **0.5.7** publishes to npm through npm trusted publishing (GitLab OIDC, no
 stored npm token, provenance as before) and carries the `funding` field and the
@@ -505,12 +526,13 @@ sentinel-ir-mcp [--exclude <name>]... [--audit-log[=<folder>]] [--max-file-bytes
 - **Reads only.** The MCP server never writes project files, runs commands or
   opens network connections. It writes only the [audit log](#audit-log) when
   you turn it on (outside the project). The separate `setup` command writes
-  only the client config file you confirm; `doctor` starts this package's own server. The only files it opens are `.js`/`.mjs`/`.cjs`/`.ts`/`.mts`/`.cts`/`.tsx`/`.py`/`.pyi`/`.rs` files up to
+  only the client config file you confirm; `doctor` starts this package's own server. The only files it opens are `.js`/`.mjs`/`.cjs`/`.jsx`/`.ts`/`.mts`/`.cts`/`.tsx`/`.py`/`.pyi`/`.rs` files up to
   `--max-file-bytes`.
 - **Only inside the allowed folders.** Every path is resolved to its real path
   (symlinks followed) and must lie inside a folder given on the command line,
   or, without folder arguments, inside one of the client's MCP roots. `../`,
-  absolute paths elsewhere and symlinks pointing outside are refused.
+  absolute paths elsewhere and symlinks pointing outside are refused, with the
+  same answer whether or not the path exists (since 0.5.8).
 - **Exclusions are yours.** They come only from the command line the client
   starts (written by `setup`), never from the agent or from files in the
   project. Excluded paths are refused by `analyze_file` and counted, not

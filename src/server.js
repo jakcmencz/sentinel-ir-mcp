@@ -42,7 +42,7 @@ const INSTRUCTIONS =
     "sentinel-ir-mcp turns JavaScript, TypeScript, Python and Rust source into a compact structural IR (risk level, dangerous " +
     "capabilities, routes, exports, imports, env reads, network/filesystem/process/crypto calls). " +
     "Prefer analyze_file or analyze_directory over reading raw source when you only need structure " +
-    "or risk, then read the raw source of the files that matter. Supported: JavaScript (.js, .mjs, .cjs), TypeScript (.ts, .mts, .cts, .tsx), Python (.py, .pyi) and Rust (.rs); the language is picked from the file extension. " +
+    "or risk, then read the raw source of the files that matter. Supported: JavaScript (.js, .mjs, .cjs, .jsx), TypeScript (.ts, .mts, .cts, .tsx), Python (.py, .pyi) and Rust (.rs); the language is picked from the file extension. " +
     "Rely on analysisStatus, world.risk, forbidden and facts; analysisStatus \"incomplete\" means the file did not parse cleanly. " +
     "analyze_directory lists such files separately in 'incomplete'; their low risk is not evidence of safety. " +
     "Suggested order: analyze_directory first, check 'incomplete', 'skipped.unreadable' and 'notAnalyzed' (set when the time budget ran out), pick the relevant files, " +
@@ -70,6 +70,9 @@ function refusalReason(err) {
     if (m.includes("outside the allowed folders")) return "outside";
     if (m.startsWith("No allowed folders")) return "no-folders";
     if (m.startsWith("Not found")) return "not-found";
+    if (m.includes("hard links")) return "hardlink";
+    if (m.endsWith("is a symlink")) return "symlink";
+    if (m.startsWith("Unsupported file type")) return "unsupported";
     return "refused";
 }
 
@@ -150,7 +153,7 @@ function createServer(options = {}) {
     server.registerTool("analyze_file", {
         title: "Analyze a JavaScript, TypeScript, Python or Rust file",
         description:
-            "Read one .js/.mjs/.cjs/.ts/.mts/.cts/.tsx/.py/.pyi/.rs file inside the allowed folders and return its compact structural IR; " +
+            "Read one .js/.mjs/.cjs/.jsx/.ts/.mts/.cts/.tsx/.py/.pyi/.rs file inside the allowed folders and return its compact structural IR; " +
             "the language comes from the extension.\n" +
             "Returns: " + IR_SHAPE + "; analysisStatus \"incomplete\" means it did not parse cleanly, so a low risk is not evidence of safety.\n" +
             `path is absolute or relative to the first allowed folder. Refused: files over ${limits.maxFileBytes} bytes, outside the allowed folders ` +

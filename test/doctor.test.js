@@ -243,7 +243,7 @@ test("doctor warns about npx-cached copies whose sentinel-ir is too old and name
         const oldLine = fakeNpxCopy(cache, "bbb2", "sentinel-ir-mcp@0.2", "0.2.3", "0.2.1", { npx: false });
         const missing = fakeNpxCopy(cache, "ccc3", "sentinel-ir-mcp@0.5", "0.5.0", null);
         const broken = fakeNpxCopy(cache, "ddd4", "sentinel-ir-mcp@0.5", "0.5.0", "junk");
-        fakeNpxCopy(cache, "eee5", "sentinel-ir-mcp@stable-0.5", "0.5.1", "0.5.6");
+        fakeNpxCopy(cache, "eee5", "sentinel-ir-mcp@stable-0.5", "0.5.1", IR_MIN);
         fakeNpxCopy(cache, "fff6", "sentinel-ir-mcp@stable-0.5", "0.5.9", "0.6.0");
         fs.mkdirSync(path.join(cache, "_npx", "ggg7", "node_modules", "other"), { recursive: true });
         fs.writeFileSync(path.join(cache, "_npx", "not-a-folder"), "x");
@@ -271,7 +271,7 @@ test("doctor: the npx cache check reads the sentinel-ir the server loads, nested
             fs.writeFileSync(path.join(d, "package.json"), JSON.stringify({ name: "sentinel-ir", version: v }));
         };
         const healthy = fakeNpxCopy(cache, "aaa1", "sentinel-ir-mcp@stable-0.5", "0.5.1", "0.4.0");
-        nest(healthy, "0.5.6");
+        nest(healthy, IR_MIN);
         const stale = fakeNpxCopy(cache, "bbb2", "sentinel-ir-mcp@0.5", "0.5.0", "0.6.0");
         nest(stale, "0.5.2");
         const { report } = await doctorJson(sb, [], { env: { npm_config_cache: cache } });
