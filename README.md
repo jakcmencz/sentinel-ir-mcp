@@ -28,6 +28,10 @@ of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.5.7** publishes to npm through npm trusted publishing (GitLab OIDC, no
+stored npm token, provenance as before) and carries the `funding` field and the
+new sponsor contact. The server itself is unchanged.
+
 **0.5.6** fixes what an audit of 0.5.5 found: `guide` names Python and Rust
 too (it still said JavaScript and TypeScript only); `analyze_file` reads files
 in a folder whose name starts with `..` (such as `..cache/x.js`) instead of
@@ -595,7 +599,8 @@ large-file size probe runs on release tags only.
 
 Release: bump `version` in `package.json` and both `version` fields in
 `server.json` (a test checks they match), push a protected tag `vX.Y.Z`;
-GitLab CI tests and publishes to npm with provenance. The GitLab mirror pushes
+GitLab CI tests and publishes to npm with provenance through npm trusted
+publishing (GitLab OIDC, no stored npm token). The GitLab mirror pushes
 the tag to GitHub, where `.github/workflows/release.yml` waits for npm, creates
 the GitHub release and publishes the tag's `server.json` to the MCP Registry
 (by hand: `mcp-publisher login github` and `mcp-publisher publish`).
