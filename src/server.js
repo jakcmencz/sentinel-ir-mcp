@@ -74,6 +74,7 @@ function refusalReason(err) {
     if (m.endsWith("is a symlink")) return "symlink";
     if (m.startsWith("Unsupported file type")) return "unsupported";
     if (m.startsWith("path must be a file path")) return "url";
+    if (m.startsWith("Not a file")) return "not-a-file";
     return "refused";
 }
 
@@ -146,7 +147,7 @@ function createServer(options = {}) {
         inputSchema: {
             code: z.string().max(limits.maxFileBytes).describe("JavaScript, TypeScript, Python or Rust source"),
             target: z.string().max(1024).optional().describe("Optional file name shown as mission.target; its extension (.ts, .tsx, .py, .rs, ...) selects the language"),
-            language: z.enum(["javascript", "typescript", "tsx", "python", "rust"]).optional().describe("Overrides the language picked from target (default javascript)")
+            language: z.enum(["javascript", "typescript", "tsx", "python", "rust", "js", "ts", "py", "rs"]).optional().describe("Overrides the language picked from target (default javascript)")
         },
         annotations: { title: "Analyze JavaScript, TypeScript, Python or Rust source", ...READ_ONLY }
     }, ({ code, target, language }) => guarded(() => analyzeCode(code, target, language), auditor("analyze_code", { code, target, language })));

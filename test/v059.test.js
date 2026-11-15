@@ -35,3 +35,18 @@ test("a file:// URL to another machine is logged with a short reason", () => {
     assert.match(line, /not a local file path/);
     assert.doesNotMatch(line, /not a URL/);
 });
+
+test("file: without // is refused as a URL; a folder is logged as not a file", () => {
+    assert.throws(() => plainPath("file:src/server.js", "linux"), /not a URL/);
+    assert.equal(refusalReason(Object.assign(new (require("../src/paths").AccessError)("Not a file: src"), {})), "not-a-file");
+    const [line] = describe({ tool: "analyze_file", path: "src", ok: false, reason: "not-a-file", message: "Not a file: src" });
+    assert.match(line, /not a file/);
+});
+
+test("analyze_code accepts the py and rs language aliases", async () => {
+    const { analyzeCode } = require("../src/analyze");
+    const py = await analyzeCode("import os\nos.system('x')\n", undefined, "py");
+    assert.equal(py.language, "python");
+    const rs = await analyzeCode("fn main() {}\n", undefined, "rs");
+    assert.equal(rs.language, "rust");
+});

@@ -583,7 +583,7 @@ async function runDoctor(opts, io) {
     const summaries = configured.length > 1 ? configured : [{ label: "", folders, exclude, audit, auditBroken }];
     for (const c of summaries) {
         const t = tag(c.label);
-        for (const line of describeExcluded(c.exclude, c.folders, SKIP_DIRS)) add("ok", "exclude", t + line);
+        for (const line of describeExcluded(c.exclude, c.folders, SKIP_DIRS)) add(line.includes("matches nothing") ? "warn" : "ok", "exclude", t + line);
         if (c.audit) add("ok", "audit", `${t}Audit log: on, in ${c.audit.path} (${describeAuditFolder(c.audit.path)}); see it: npx -y ${PACKAGE_SPEC} log${c.audit.dir ? ` --dir "${c.audit.dir}"` : ""}`);
         else if (!c.auditBroken) add("ok", "audit", `${t}Audit log: off (turn it on: npx -y ${PACKAGE_SPEC} setup --audit-log)`);
     }

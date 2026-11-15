@@ -19,6 +19,7 @@ const WIN_NAMESPACE = /^[\\/]{2}\?[\\/](UNC[\\/])?/i;
 
 function plainPath(requested, platform = process.platform) {
     if (/^file:/i.test(requested)) {
+        if (!/^file:\/\//i.test(requested)) throw new AccessError(`path must be a file path, not a URL: ${requested}`);
         try {
             return fileURLToPath(requested, { windows: platform === "win32" });
         } catch {

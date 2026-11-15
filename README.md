@@ -35,6 +35,10 @@ and Rust (and what is not) is listed in the
 - `log` says `incomplete: unsupported language` for `analyze_code` with a
   `target` like `x.rb`, not `broken code`; a `file://` URL to another machine
   is logged as `not a local file path` instead of the whole error.
+  `file:src/x.js` (no `//`) is refused as a URL, not as a path outside the
+  project. A folder passed to `analyze_file` is logged as `not a file`.
+- `doctor` warns (instead of `[ok]`) about an exclusion that matches nothing.
+- `analyze_code` takes the `js`, `ts`, `py` and `rs` aliases like sentinel-ir.
 
 **0.5.8** fixes what a user test of 0.5.7 on Linux, macOS and Windows found:
 
@@ -239,7 +243,7 @@ Also uses `sentinel-ir` 0.4.5 (Python parse errors point where Python does).
 
 | tool | input | returns |
 |---|---|---|
-| `analyze_code` | `code` (string), optional `target` (file name) | compact IR of the given source |
+| `analyze_code` | `code` (string), optional `target` (file name; its extension picks the language), optional `language` (`javascript`, `typescript`, `tsx`, `python`, `rust`, or `js`/`ts`/`py`/`rs` since 0.5.9) | compact IR of the given source |
 | `analyze_file` | `path` | compact IR of one file inside the allowed folders |
 | `analyze_directory` | optional `path`, `max_files` (default 50, max 500), `recursive` (default `true`), `detail` (`"summary"` default, or `"full"`) | one short entry per file (path, risk, status, language, lines, operations, up to 3 risk signals; `"full"`: all facts), sorted from highest to lowest risk, plus `riskCounts`, `statusCounts` and `incomplete` (paths whose analysis did not finish; check them separately, their low risk is not evidence of safety); files that could not be read are listed in `skipped.unreadable` and are not counted as analyzed; excluded files and folders are only counted in `skipped.excluded`; `truncated` and `skipped` |
 
@@ -482,7 +486,8 @@ server through `cmd`). Then read it with `log --dir <folder>`.
   (local date): time, client name, tool, the path the agent asked for, the
   result (risk, `analysisStatus`, file counts, up to 20 `critical`/`high` file
   paths of a folder) or why it was refused (`excluded`, `outside`,
-  `not-found`, `too-large`), and the duration. A line when the server starts.
+  `not-found`, `too-large`, `hardlink`, `symlink`, `unsupported`,
+  `not-a-file`, `url`, `no-folders`), and the duration. A line when the server starts.
 - **Which version of a file (0.4.5):** for every file the server read, the
   SHA-256 of the exact bytes it analyzed: `sha256` for `analyze_file`; for
   `analyze_directory` the folder line gets a `call` id and `hashed` count,

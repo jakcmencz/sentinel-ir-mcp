@@ -23,7 +23,8 @@ const REASONS = {
     hardlink: "file has several hard links",
     symlink: "symlink",
     unsupported: "unsupported file type",
-    url: "not a local file path"
+    url: "not a local file path",
+    "not-a-file": "not a file"
 };
 
 const TOOL_WORDS = { analyze_file: "file", analyze_directory: "folder", analyze_code: "pasted code" };
