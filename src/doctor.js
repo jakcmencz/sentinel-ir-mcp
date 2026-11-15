@@ -357,7 +357,7 @@ function checkNpxCache(env, platform, add) {
         return;
     }
     for (const c of stale) {
-        add("warn", "npx.cache", `npx keeps starting a cached ${c.spec} (sentinel-ir-mcp ${c.mcp}, sentinel-ir ${c.ir}) from ${c.dir}; sentinel-ir older than ${IR_MIN} misses security fixes`,
+        add("warn", "npx.cache", `The npx cache still holds ${c.spec} (sentinel-ir-mcp ${c.mcp}, sentinel-ir ${c.ir}) in ${c.dir}; a client entry with that version or range keeps starting it, and sentinel-ir older than ${IR_MIN} misses security fixes`,
             `Close the client, delete that folder (npm 11: npm cache npx rm ${c.key}), then run: npx -y ${PACKAGE_SPEC} setup`);
     }
 }

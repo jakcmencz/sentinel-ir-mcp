@@ -250,10 +250,10 @@ test("doctor warns about npx-cached copies whose sentinel-ir is too old and name
         const { report, code } = await doctorJson(sb, [], { env: { npm_config_cache: cache } });
         const warns = byId(report, "npx.cache");
         assert.deepEqual(warns.map((c) => c.status), ["warn", "warn", "warn", "warn"]);
-        assert.match(warns[0].message, /cached sentinel-ir-mcp@0\.5 \(sentinel-ir-mcp 0\.5\.0, sentinel-ir 0\.5\.2\)/);
+        assert.match(warns[0].message, /still holds sentinel-ir-mcp@0\.5 \(sentinel-ir-mcp 0\.5\.0, sentinel-ir 0\.5\.2\)/);
         assert.ok(warns[0].message.includes(stale));
         assert.match(warns[0].fix, /npm cache npx rm aaa1\), then run: npx -y sentinel-ir-mcp@stable-0\.5 setup$/);
-        assert.match(warns[1].message, /cached sentinel-ir-mcp@0\.2 \(sentinel-ir-mcp 0\.2\.3, sentinel-ir 0\.2\.1\)/);
+        assert.match(warns[1].message, /still holds sentinel-ir-mcp@0\.2 \(sentinel-ir-mcp 0\.2\.3, sentinel-ir 0\.2\.1\)/);
         assert.ok(warns[1].message.includes(oldLine));
         assert.ok(warns[2].message.includes(missing) && /sentinel-ir unknown/.test(warns[2].message));
         assert.ok(warns[3].message.includes(broken) && /sentinel-ir unknown/.test(warns[3].message));

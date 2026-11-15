@@ -20,7 +20,8 @@ source only of the files that matter.
 **Supported:** JavaScript (`.js`, `.mjs`, `.cjs`, `.jsx`; `.jsx` since 0.5.8), TypeScript (`.ts`, `.mts`,
 `.cts`, `.tsx`; since 0.2.0), Python (`.py`, `.pyi`; since 0.3.0) and Rust
 (`.rs`; since 0.5.0). The
-language is picked from the file extension; `analyze_code` also takes `target`
+language is picked from the file extension, so `analyze_file` refuses a file
+without one (a shell script, `Makefile`); `analyze_code` also takes `target`
 or an explicit `language` (`javascript` | `typescript` | `tsx` | `python` | `rust`). Every result carries `language` and
 `analysisStatus`; a file that does not parse cleanly (including JSX in a `.ts`
 file) is `"incomplete"`, and a low risk on an incomplete result is not evidence
@@ -39,6 +40,16 @@ and Rust (and what is not) is listed in the
   project. A folder passed to `analyze_file` is logged as `not a file`.
 - `doctor` warns (instead of `[ok]`) about an exclusion that matches nothing.
 - `analyze_code` takes the `js`, `ts`, `py` and `rs` aliases like sentinel-ir.
+- Windows: a UNC path (`\\server\share\x.js`) or `file://server/...` outside the
+  allowed folders is refused from its text, before any file system call.
+  Before, Windows first opened an SMB connection to that server (a known way
+  to leak NTLM credentials) and the answer took 2 to 22 s. `http://` and other
+  URLs are refused as URLs, not `Not found`.
+- `log` counts files with several hard links separately from too large or
+  unreadable ones, says `outside the allowed folders` like the tool answer, and
+  `not a folder` for a file passed to `analyze_directory`.
+- `doctor` says the npx cache *holds* a stale copy; only an entry with that
+  version or range keeps starting it (a tag is looked up again).
 
 **0.5.8** fixes what a user test of 0.5.7 on Linux, macOS and Windows found:
 
@@ -114,7 +125,8 @@ they refuse. No change to what the tools return.
   started.
 - `doctor` warns about an entry that pins a version or range (`@0.5`,
   `@0.5.0`, ...) and about every copy in npm's `_npx` cache whose
-  `sentinel-ir` is older than 0.5.6, with the folder to delete. It fails when
+  `sentinel-ir` is older than the version this release needs, with the folder
+  to delete. It fails when
   the server itself runs an older `sentinel-ir`.
 
 If you set up 0.5.0 or older, run `setup` again **with the new tag** (`npx -y
@@ -349,8 +361,8 @@ with the `sentinel-ir` it got then, even when newer versions are on npm
 instead. If a client still starts an old copy:
 
 1. Run `npx -y sentinel-ir-mcp@stable-0.5 doctor`. It prints the versions it
-   runs and lists every cached copy with a `sentinel-ir` older than 0.5.6,
-   with its folder.
+   runs and lists every cached copy with a `sentinel-ir` older than the
+   version it needs, with its folder.
 2. Close the client app and delete those folders (npm 11: `npm cache npx rm
    <key>`). Deleting the whole `_npx` folder in npm's cache also works
    (`npm config get cache` shows where it is; usually `~/.npm/_npx`, on

@@ -50,3 +50,36 @@ test("analyze_code accepts the py and rs language aliases", async () => {
     const rs = await analyzeCode("fn main() {}\n", undefined, "rs");
     assert.equal(rs.language, "rust");
 });
+
+test("remote file:// and http URLs are refused as URLs", () => {
+    const { plainPath: plain } = require("../src/paths");
+    for (const p of ["file://server/share/x.js", "https://example.com/x.js"]) {
+        assert.throws(() => plain(p, "win32"), /not a URL/, p);
+        assert.throws(() => plain(p, "linux"), /not a URL/, p);
+    }
+    assert.equal(plain("file://localhost/C:/p/x.js", "win32"), "C:\\p\\x.js");
+});
+
+test("Windows: a UNC path outside the folders is refused before any file system call", { skip: process.platform !== "win32" }, () => {
+    const fs = require("fs");
+    const { resolveInside } = require("../src/paths");
+    const calls = [];
+    const orig = { realpathSync: fs.realpathSync, lstatSync: fs.lstatSync };
+    fs.realpathSync = (p) => { calls.push(p); throw new Error("touched"); };
+    fs.lstatSync = (p) => { calls.push(p); throw new Error("touched"); };
+    try {
+        for (const p of ["//192.0.2.55/share/x.js", "\\\\192.0.2.55\\share\\x.js"]) {
+            assert.throws(() => resolveInside(p, ["C:\\proj"]), /outside the allowed folders/, p);
+        }
+    } finally {
+        Object.assign(fs, orig);
+    }
+    assert.deepEqual(calls, []);
+});
+
+test("log splits hard links from too-large files and names not-a-folder", () => {
+    const [line] = describe({ tool: "analyze_directory", path: ".", ok: true, analyzed: 9, riskCounts: { low: 9 }, notRead: 4, hardlinks: 3 });
+    assert.match(line, /1 not read \(too large or unreadable\), 3 not read \(several hard links\)/);
+    const [ref] = describe({ tool: "analyze_directory", path: "a.js", ok: false, reason: "not-a-folder", message: "Not a folder: a.js" });
+    assert.match(ref, /not a folder/);
+});

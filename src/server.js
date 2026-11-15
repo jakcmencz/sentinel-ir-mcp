@@ -75,6 +75,7 @@ function refusalReason(err) {
     if (m.startsWith("Unsupported file type")) return "unsupported";
     if (m.startsWith("path must be a file path")) return "url";
     if (m.startsWith("Not a file")) return "not-a-file";
+    if (m.startsWith("Not a folder")) return "not-a-folder";
     return "refused";
 }
 

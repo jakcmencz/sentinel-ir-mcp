@@ -17,15 +17,29 @@ const SUPPORTED_LIST = [...SOURCE_EXTENSIONS].join(", ");
 // differently, so they are turned into plain paths first.
 const WIN_NAMESPACE = /^[\\/]{2}\?[\\/](UNC[\\/])?/i;
 
+function notUrl(requested) {
+    return new AccessError(`path must be a file path, not a URL: ${requested}`);
+}
+
 function plainPath(requested, platform = process.platform) {
     if (/^file:/i.test(requested)) {
-        if (!/^file:\/\//i.test(requested)) throw new AccessError(`path must be a file path, not a URL: ${requested}`);
+        if (!/^file:\/\//i.test(requested)) throw notUrl(requested);
+        let url;
+        try {
+            url = new URL(requested);
+        } catch {
+            throw notUrl(requested);
+        }
+        // file://server/share is another machine; refused before any file
+        // system call, because Windows would open an SMB connection to it.
+        if (url.hostname && url.hostname.toLowerCase() !== "localhost") throw notUrl(requested);
         try {
             return fileURLToPath(requested, { windows: platform === "win32" });
         } catch {
-            throw new AccessError(`path must be a file path, not a URL: ${requested}`);
+            throw notUrl(requested);
         }
     }
+    if (/^[a-z][a-z0-9+.-]+:\/\//i.test(requested)) throw notUrl(requested);
     if (platform === "win32") {
         const m = WIN_NAMESPACE.exec(requested);
         if (m) return (m[1] ? "\\\\" : "") + requested.slice(m[0].length);
@@ -102,6 +116,10 @@ function resolveInside(requested, roots) {
         throw new AccessError("path must be a non-empty string");
     }
     const absolute = path.resolve(roots[0], plainPath(requested));
+    // A UNC path (\\server\share, \\.\UNC\...) outside every folder is refused
+    // from its text alone: on Windows, realpath on it opens an SMB connection
+    // to that server, which can leak NTLM credentials.
+    if (/^[\\/]{2}/.test(absolute) && !roots.some((r) => isInside(absolute, r))) throw outside(requested);
     let real;
     try {
         real = fs.realpathSync(absolute);

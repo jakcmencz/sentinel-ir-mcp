@@ -16,7 +16,7 @@ function safe(value) {
 
 const REASONS = {
     excluded: "excluded by your settings",
-    outside: "outside the project folder",
+    outside: "outside the allowed folders",
     "not-found": "does not exist",
     "too-large": "file too large",
     "no-folders": "no project folder is set",
@@ -24,7 +24,8 @@ const REASONS = {
     symlink: "symlink",
     unsupported: "unsupported file type",
     url: "not a local file path",
-    "not-a-file": "not a file"
+    "not-a-file": "not a file",
+    "not-a-folder": "not a folder"
 };
 
 const TOOL_WORDS = { analyze_file: "file", analyze_directory: "folder", analyze_code: "pasted code" };
@@ -64,7 +65,10 @@ function describe(e) {
     if (e.tool === "analyze_directory") {
         const extra = [];
         if (Number(e.excluded) > 0) extra.push(`${Number(e.excluded)} excluded`);
-        if (Number(e.notRead) > 0) extra.push(`${Number(e.notRead)} not read (too large or unreadable)`);
+        const links = Math.max(0, Number(e.hardlinks) || 0);
+        const big = Number(e.notRead) - links;
+        if (big > 0) extra.push(`${big} not read (too large or unreadable)`);
+        if (links > 0) extra.push(`${links} not read (several hard links)`);
         if (e.truncated) extra.push("stopped at the file limit");
         if (e.timedOut) extra.push("stopped at the time limit");
         if (Number(e.hashed) > 0) extra.push(`sha256 of ${Number(e.hashed)} file(s) in log --json`);
