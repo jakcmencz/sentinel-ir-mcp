@@ -48,6 +48,8 @@ and Rust (and what is not) is listed in the
 - `log` counts files with several hard links separately from too large or
   unreadable ones, says `outside the allowed folders` like the tool answer, and
   `not a folder` for a file passed to `analyze_directory`.
+- Needs `sentinel-ir` 0.5.9: a broken Python or Rust file is `critical` only
+  with a capability named in `forbidden`.
 - `doctor` says the npx cache *holds* a stale copy; only an entry with that
   version or range keeps starting it (a tag is looked up again).
 
