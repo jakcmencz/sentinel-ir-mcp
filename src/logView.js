@@ -64,7 +64,9 @@ function describe(e) {
     }
     if (e.tool === "analyze_directory") {
         const extra = [];
+        if (Number(e.incomplete) > 0) extra.push(`${Number(e.incomplete)} incomplete`);
         if (Number(e.excluded) > 0) extra.push(`${Number(e.excluded)} excluded`);
+        if (Number(e.symlinks) > 0) extra.push(`${Number(e.symlinks)} symlink(s) skipped`);
         const links = Math.max(0, Number(e.hardlinks) || 0);
         const big = Number(e.notRead) - links;
         if (big > 0) extra.push(`${big} not read (too large or unreadable)`);

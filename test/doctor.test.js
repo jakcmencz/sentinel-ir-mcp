@@ -235,29 +235,46 @@ function fakeNpxCopy(cache, key, spec, mcp, ir, { npx = true } = {}) {
     return dir;
 }
 
-test("doctor warns about npx-cached copies whose sentinel-ir is too old and names the folder", async () => {
+const npxKey = (spec) => require("crypto").createHash("sha512").update(spec).digest("hex").slice(0, 16);
+
+test("doctor warns about old npx-cached copies, names the spec npx keeps them for and the folder", async () => {
     const sb = sandbox();
     try {
         const cache = path.join(sb.base, "npm-cache");
-        const stale = fakeNpxCopy(cache, "aaa1", "sentinel-ir-mcp@0.5", "0.5.0", "0.5.2");
+        const { version } = require("../package.json");
+        const range = fakeNpxCopy(cache, npxKey("sentinel-ir-mcp@0.5"), "sentinel-ir-mcp@0.5", "0.5.0", "0.5.2");
+        const pinned = fakeNpxCopy(cache, npxKey("sentinel-ir-mcp@0.5.8"), "sentinel-ir-mcp@0.5.8", "0.5.8", IR_MIN);
         const oldLine = fakeNpxCopy(cache, "bbb2", "sentinel-ir-mcp@0.2", "0.2.3", "0.2.1", { npx: false });
-        const missing = fakeNpxCopy(cache, "ccc3", "sentinel-ir-mcp@0.5", "0.5.0", null);
-        const broken = fakeNpxCopy(cache, "ddd4", "sentinel-ir-mcp@0.5", "0.5.0", "junk");
-        fakeNpxCopy(cache, "eee5", "sentinel-ir-mcp@stable-0.5", "0.5.1", IR_MIN);
-        fakeNpxCopy(cache, "fff6", "sentinel-ir-mcp@stable-0.5", "0.5.9", "0.6.0");
+        const missing = fakeNpxCopy(cache, "ccc3", "sentinel-ir-mcp@0.5", version, null);
+        const broken = fakeNpxCopy(cache, "ddd4", "sentinel-ir-mcp@0.5", version, "junk");
+        fakeNpxCopy(cache, npxKey("sentinel-ir-mcp@stable-0.5"), "sentinel-ir-mcp@stable-0.5", "0.5.1", "0.5.2");
+        fakeNpxCopy(cache, npxKey("sentinel-ir-mcp"), "sentinel-ir-mcp@latest", "0.5.1", "0.5.2");
+        fakeNpxCopy(cache, "fff6", "sentinel-ir-mcp@0.5", version, "0.6.0");
         fs.mkdirSync(path.join(cache, "_npx", "ggg7", "node_modules", "other"), { recursive: true });
         fs.writeFileSync(path.join(cache, "_npx", "not-a-folder"), "x");
         const { report, code } = await doctorJson(sb, [], { env: { npm_config_cache: cache } });
         const warns = byId(report, "npx.cache");
-        assert.deepEqual(warns.map((c) => c.status), ["warn", "warn", "warn", "warn"]);
-        assert.match(warns[0].message, /still holds sentinel-ir-mcp@0\.5 \(sentinel-ir-mcp 0\.5\.0, sentinel-ir 0\.5\.2\)/);
-        assert.ok(warns[0].message.includes(stale));
-        assert.match(warns[0].fix, /npm cache npx rm aaa1\), then run: npx -y sentinel-ir-mcp@stable-0\.5 setup$/);
-        assert.match(warns[1].message, /still holds sentinel-ir-mcp@0\.2 \(sentinel-ir-mcp 0\.2\.3, sentinel-ir 0\.2\.1\)/);
-        assert.ok(warns[1].message.includes(oldLine));
-        assert.ok(warns[2].message.includes(missing) && /sentinel-ir unknown/.test(warns[2].message));
-        assert.ok(warns[3].message.includes(broken) && /sentinel-ir unknown/.test(warns[3].message));
+        assert.deepEqual(warns.map((c) => c.status), ["warn", "warn", "warn", "warn", "warn"]);
+        const about = (dir) => warns.find((w) => w.message.includes(dir));
+        assert.match(about(range).message, /holds sentinel-ir-mcp 0\.5\.0 \(sentinel-ir 0\.5\.2\) .*; a client entry with sentinel-ir-mcp@0\.5 keeps starting it/);
+        assert.match(about(range).fix, new RegExp(`npm cache npx rm ${npxKey("sentinel-ir-mcp@0.5")}\\), then run: npx -y sentinel-ir-mcp@stable-0\\.5 setup --client <your client>$`));
+        assert.match(about(pinned).message, /holds sentinel-ir-mcp 0\.5\.8 .*a client entry with sentinel-ir-mcp@0\.5\.8 keeps starting it/);
+        assert.match(about(oldLine).message, /holds sentinel-ir-mcp 0\.2\.3 \(sentinel-ir 0\.2\.1\).*the version or range it was downloaded for/);
+        assert.ok(/sentinel-ir unknown/.test(about(missing).message));
+        assert.ok(/sentinel-ir unknown/.test(about(broken).message));
         assert.equal(code, 0, "a stale cache is a warning, not a failure");
+    } finally { sb.cleanup(); }
+});
+
+test("doctor --client vscode does not claim exclusions or the audit log are off; fixes keep the client", async () => {
+    const sb = sandbox();
+    try {
+        const { report } = await doctorJson(sb, ["--client", "vscode"]);
+        assert.deepEqual(byId(report, "audit"), []);
+        const ex = byId(report, "exclude");
+        assert.equal(ex.length, 1);
+        assert.equal(ex[0].status, "skip");
+        assert.match(ex[0].message, /cannot read VS Code's entry/);
     } finally { sb.cleanup(); }
 });
 
@@ -270,7 +287,7 @@ test("doctor: the npx cache check reads the sentinel-ir the server loads, nested
             fs.mkdirSync(d, { recursive: true });
             fs.writeFileSync(path.join(d, "package.json"), JSON.stringify({ name: "sentinel-ir", version: v }));
         };
-        const healthy = fakeNpxCopy(cache, "aaa1", "sentinel-ir-mcp@stable-0.5", "0.5.1", "0.4.0");
+        const healthy = fakeNpxCopy(cache, "aaa1", "sentinel-ir-mcp@0.5", require("../package.json").version, "0.4.0");
         nest(healthy, IR_MIN);
         const stale = fakeNpxCopy(cache, "bbb2", "sentinel-ir-mcp@0.5", "0.5.0", "0.6.0");
         nest(stale, "0.5.2");

@@ -18,7 +18,7 @@ const SUPPORTED_LIST = [...SOURCE_EXTENSIONS].join(", ");
 const WIN_NAMESPACE = /^[\\/]{2}\?[\\/](UNC[\\/])?/i;
 
 function notUrl(requested) {
-    return new AccessError(`path must be a file path, not a URL: ${requested}`);
+    return new AccessError(`Not a file path: ${requested} is a URL`);
 }
 
 function plainPath(requested, platform = process.platform) {
@@ -39,7 +39,7 @@ function plainPath(requested, platform = process.platform) {
             throw notUrl(requested);
         }
     }
-    if (/^[a-z][a-z0-9+.-]+:\/\//i.test(requested)) throw notUrl(requested);
+    if (/^[a-z][a-z0-9+.-]+:\/\//i.test(requested) || /^(data|mailto|javascript|blob|about|tel|urn):/i.test(requested)) throw notUrl(requested);
     if (platform === "win32") {
         const m = WIN_NAMESPACE.exec(requested);
         if (m) return (m[1] ? "\\\\" : "") + requested.slice(m[0].length);

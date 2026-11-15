@@ -492,7 +492,7 @@ test("doctor shows the log state and proves the server can write it", async () =
 
         await cli(sb, "setup", ["--client", "windsurf", "--no-audit-log", "--yes"]);
         const off = await cli(sb, "doctor", ["--client", "windsurf"]);
-        assert.match(off.stdout, /Audit log: off \(turn it on: npx -y sentinel-ir-mcp@stable-0\.5 setup --audit-log\)/);
+        assert.match(off.stdout, /Audit log: off \(turn it on: npx -y sentinel-ir-mcp@stable-0\.5 setup --client windsurf --audit-log\)/);
     } finally {
         sb.cleanup();
     }

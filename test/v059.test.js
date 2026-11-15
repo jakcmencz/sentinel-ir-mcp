@@ -33,11 +33,11 @@ test("a file:// URL to another machine is logged with a short reason", () => {
     assert.equal(refusalReason(err), "url");
     const [line] = describe({ tool: "analyze_file", path: "file://host/share/x.js", ok: false, reason: "url", message: err.message });
     assert.match(line, /not a local file path/);
-    assert.doesNotMatch(line, /not a URL/);
+    assert.doesNotMatch(line, /is a URL/);
 });
 
 test("file: without // is refused as a URL; a folder is logged as not a file", () => {
-    assert.throws(() => plainPath("file:src/server.js", "linux"), /not a URL/);
+    assert.throws(() => plainPath("file:src/server.js", "linux"), /is a URL/);
     assert.equal(refusalReason(Object.assign(new (require("../src/paths").AccessError)("Not a file: src"), {})), "not-a-file");
     const [line] = describe({ tool: "analyze_file", path: "src", ok: false, reason: "not-a-file", message: "Not a file: src" });
     assert.match(line, /not a file/);
@@ -54,8 +54,8 @@ test("analyze_code accepts the py and rs language aliases", async () => {
 test("remote file:// and http URLs are refused as URLs", () => {
     const { plainPath: plain } = require("../src/paths");
     for (const p of ["file://server/share/x.js", "https://example.com/x.js"]) {
-        assert.throws(() => plain(p, "win32"), /not a URL/, p);
-        assert.throws(() => plain(p, "linux"), /not a URL/, p);
+        assert.throws(() => plain(p, "win32"), /is a URL/, p);
+        assert.throws(() => plain(p, "linux"), /is a URL/, p);
     }
     assert.equal(plain("file://localhost/C:/p/x.js", "win32"), "C:\\p\\x.js");
 });
