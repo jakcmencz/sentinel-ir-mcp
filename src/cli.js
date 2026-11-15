@@ -112,7 +112,17 @@ function defaultIo() {
     };
 }
 
+// `log | head` closes the pipe early; that is the reader's choice, not an error.
+function quietOnClosedPipe(stream) {
+    if (typeof stream?.on !== "function" || stream.listenerCount?.("error")) return;
+    stream.on("error", (e) => {
+        if (e && e.code === "EPIPE") process.exit(process.exitCode || 0);
+        throw e;
+    });
+}
+
 async function runCommand(command, argv, io = defaultIo()) {
+    quietOnClosedPipe(io.stdout);
     let opts;
     try {
         opts = parse(command, argv);

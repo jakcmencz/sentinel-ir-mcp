@@ -19,7 +19,10 @@ const REASONS = {
     outside: "outside the project folder",
     "not-found": "does not exist",
     "too-large": "file too large",
-    "no-folders": "no project folder is set"
+    "no-folders": "no project folder is set",
+    hardlink: "file has several hard links",
+    symlink: "symlink",
+    unsupported: "unsupported file type"
 };
 
 const TOOL_WORDS = { analyze_file: "file", analyze_directory: "folder", analyze_code: "pasted code" };

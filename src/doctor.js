@@ -555,6 +555,7 @@ async function runDoctor(opts, io) {
     let exclude = [];
     let audit = null;
     let auditBroken = false;
+    const configured = [];
     for (const client of names) {
         const ctx = { project, global: Boolean(opts.global), env: io.env, platform: io.platform };
         let file = opts.config ? path.resolve(io.cwd, opts.config) : CLIENTS[client].configPath(ctx);
@@ -565,8 +566,11 @@ async function runDoctor(opts, io) {
             file = legacy;
         }
         const found = checkConfig(client, file, Boolean(opts.client), project, add, io.platform, io.env);
+        if (found) configured.push({ label: CLIENTS[client].label, ...found });
         if (found && folders === null) ({ folders, exclude, audit, auditBroken = false } = found);
     }
+    // Several clients may have different settings: each gets its own lines.
+    const tag = configured.length > 1 ? (label) => `${label}: ` : () => "";
     if (folders === null) {
         let isDir = false;
         try { isDir = fs.statSync(project).isDirectory(); } catch { /* reported below */ }
@@ -576,9 +580,14 @@ async function runDoctor(opts, io) {
             folders = [];
         }
     }
-    for (const line of describeExcluded(exclude, folders, SKIP_DIRS)) add("ok", "exclude", line);
-    if (audit) add("ok", "audit", `Audit log: on, in ${audit.path} (${describeAuditFolder(audit.path)}); see it: npx -y ${PACKAGE_SPEC} log${audit.dir ? ` --dir "${audit.dir}"` : ""}`);
-    else if (!auditBroken) add("ok", "audit", `Audit log: off (turn it on: npx -y ${PACKAGE_SPEC} setup --audit-log)`);
+    const summaries = configured.length > 1 ? configured : [{ label: "", folders, exclude, audit, auditBroken }];
+    for (const c of summaries) {
+        const t = tag(c.label);
+        for (const line of describeExcluded(c.exclude, c.folders, SKIP_DIRS)) add("ok", "exclude", t + line);
+        if (c.audit) add("ok", "audit", `${t}Audit log: on, in ${c.audit.path} (${describeAuditFolder(c.audit.path)}); see it: npx -y ${PACKAGE_SPEC} log${c.audit.dir ? ` --dir "${c.audit.dir}"` : ""}`);
+        else if (!c.auditBroken) add("ok", "audit", `${t}Audit log: off (turn it on: npx -y ${PACKAGE_SPEC} setup --audit-log)`);
+    }
+    if (configured.length > 1) add("ok", "mcp.settings", `The connection test below uses the ${configured[0].label} settings; check another client with --client.`);
     await checkHandshake(folders, exclude, audit, add, opts.timeoutMs || 30000);
 
     const failed = checks.some((c) => c.status === "fail");

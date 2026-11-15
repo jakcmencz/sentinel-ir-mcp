@@ -5,7 +5,7 @@ const { createHash } = require("crypto");
 const { constants, realpathSync } = require("fs");
 const path = require("path");
 const { analyzeAsync, compress } = require("sentinel-ir");
-const { AccessError, resolveInside, isInside, isSourceFile } = require("./paths");
+const { AccessError, resolveInside, isInside, isSourceFile, plainPath, SUPPORTED_LIST } = require("./paths");
 const { isExcluded, NONE } = require("./exclude");
 
 // O_NONBLOCK: opening a FIFO swapped in after listing must not block the
@@ -25,7 +25,7 @@ function excludedError(label) {
 // Windows short names, letter case).
 function resolveAllowed(requested, roots, excluder) {
     if (excluder.active && roots.length && typeof requested === "string" && requested.trim() !== "" && !requested.includes("\0")) {
-        if (isExcluded(path.resolve(roots[0], requested), roots, excluder)) throw excludedError(requested);
+        if (isExcluded(path.resolve(roots[0], plainPath(requested)), roots, excluder)) throw excludedError(requested);
     }
     const resolved = resolveInside(requested, roots);
     if (isExcluded(resolved.real, roots, excluder)) throw excludedError(requested);
@@ -121,7 +121,7 @@ async function analyzeFile(requested, roots, { maxFileBytes, excluder = NONE, ha
     const stat = await fs.stat(real);
     if (!stat.isFile()) throw new AccessError(`Not a file: ${requested}`);
     if (!isSourceFile(real)) {
-        throw new AccessError(`Unsupported file type: ${requested} (only .js, .mjs, .cjs, .ts, .mts, .cts, .tsx, .py, .pyi and .rs)`);
+        throw new AccessError(`Unsupported file type: ${requested} (only ${SUPPORTED_LIST})`);
     }
     if (stat.size > maxFileBytes) {
         throw new AccessError(`File too large: ${requested} is ${stat.size} bytes, limit is ${maxFileBytes}`);
