@@ -603,3 +603,43 @@ test("fetchDistTags goes through the proxy npm would use", async () => {
         }
     } finally { stop(registry, proxy, ...(tlsRegistry ? [tlsRegistry] : [])); }
 });
+
+test("doctor in the home folder or a disk root: setup fixes name a project folder, since setup refuses those", async () => {
+    const sb = sandbox();
+    try {
+        const file = path.join(sb.home, ".cursor", "mcp.json");
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@0.2", "${workspaceFolder}"] } } }));
+        const hint = "--project <your project folder>";
+        const fromHome = await doctorJson(sb, [], { cwd: sb.home });
+        const entry = byId(fromHome.report, "cursor.entry")[0];
+        assert.equal(entry.status, "warn");
+        assert.ok(entry.fix.endsWith(`setup --client cursor ${hint}`), entry.fix);
+        assert.ok(byId(fromHome.report, "audit")[0].message.includes(`setup --client <your client> ${hint} --audit-log`));
+        const global = await doctorJson(sb, ["--client", "cursor", "--global"], { cwd: sb.home });
+        assert.ok(byId(global.report, "cursor.entry")[0].fix.endsWith(`setup --client cursor --global ${hint}`));
+        const root = await doctorJson(sb, ["--client", "cursor", "--global"], { cwd: path.parse(sb.base).root });
+        assert.ok(byId(root.report, "cursor.entry")[0].fix.endsWith(`setup --client cursor --global ${hint}`));
+        const fromProject = await doctorJson(sb, ["--client", "cursor", "--global"]);
+        assert.ok(byId(fromProject.report, "cursor.entry")[0].fix.endsWith("setup --client cursor --global"));
+    } finally { sb.cleanup(); }
+});
+
+test("the fix doctor prints from the home folder is a setup command that works", async () => {
+    const sb = sandbox();
+    try {
+        const file = path.join(sb.home, ".cursor", "mcp.json");
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, JSON.stringify({ mcpServers: { "sentinel-ir": { command: "npx", args: ["-y", "sentinel-ir-mcp@0.2", sb.project] } } }));
+        const { report } = await doctorJson(sb, ["--client", "cursor", "--global"], { cwd: sb.home });
+        const argv = byId(report, "cursor.entry")[0].fix.split(" setup ")[1].split(" ")
+            .map((a) => a === "<your" ? sb.project : a).filter((a) => a !== "project" && a !== "folder>");
+        const plain = await run(sb, "setup", argv, { cwd: sb.home });
+        assert.match(plain.stderr + plain.stdout, /Run again with --yes/);
+        const r = await run(sb, "setup", [...argv, "--yes"], { cwd: sb.home });
+        assert.equal(r.code, 0, r.stderr);
+        assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).mcpServers["sentinel-ir"].args.slice(0, 2), ["-y", "sentinel-ir-mcp@stable-0.5"]);
+        const after = await doctorJson(sb, ["--client", "cursor", "--global"], { cwd: sb.home });
+        assert.equal(byId(after.report, "cursor.entry")[0].status, "ok");
+    } finally { sb.cleanup(); }
+});

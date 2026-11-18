@@ -11,7 +11,7 @@ const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio
 const { version, dependencies } = require("../package.json");
 const { SERVER_NAME, PACKAGE_SPEC, homeOf, WORKSPACE_VAR, CLIENTS, FILE_CLIENTS, isWindowsNpxWrapper, entryExcludes, entryAuditLog, serverFlags } = require("./clients");
 const { AuditLogError, defaultAuditDir, normalizeAuditDir, assertOutsideProjects, logFiles, dayName, createAuditLog } = require("./auditLog");
-const { readConfig } = require("./setup");
+const { readConfig, validateProject, SetupError } = require("./setup");
 const { createExcluder, ExcludeError } = require("./exclude");
 const { SKIP_DIRS } = require("./analyze");
 const { describeExcluded } = require("./excludeReport");
@@ -405,14 +405,15 @@ function checkExcludes(client, label, args, file, add) {
     }
 }
 
-function checkConfig(client, file, explicit, project, add, platform, env) {
+function checkConfig(client, file, explicit, project, add, platform, env, setupFor) {
     const label = CLIENTS[client].label;
+    const rerun = `Run: npx -y ${PACKAGE_SPEC} setup ${setupFor(client)}`;
     if (!file) {
         if (explicit) add("fail", `${client}.config`, `${label}: config location unknown on this system`, "Pass the config path with --config <file>.");
         return null;
     }
     if (!fs.existsSync(file)) {
-        if (explicit) add("fail", `${client}.config`, `${label}: ${file} not found`, `Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
+        if (explicit) add("fail", `${client}.config`, `${label}: ${file} not found`, rerun);
         else add("skip", `${client}.config`, `${label}: no config at ${file}`);
         return null;
     }
@@ -425,7 +426,7 @@ function checkConfig(client, file, explicit, project, add, platform, env) {
     }
     const entry = data.mcpServers && Object.prototype.hasOwnProperty.call(data.mcpServers, SERVER_NAME) ? data.mcpServers[SERVER_NAME] : undefined;
     if (entry === undefined) {
-        if (explicit) add("fail", `${client}.entry`, `${label}: no "${SERVER_NAME}" server in ${file}`, `Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
+        if (explicit) add("fail", `${client}.entry`, `${label}: no "${SERVER_NAME}" server in ${file}`, rerun);
         else add("skip", `${client}.entry`, `${label}: ${file} has no "${SERVER_NAME}" server`);
         return null;
     }
@@ -433,16 +434,16 @@ function checkConfig(client, file, explicit, project, add, platform, env) {
     const folders = entryFolders(args);
     if (!entry || typeof entry.command !== "string" || folders === null) {
         add("fail", `${client}.entry`, `${label}: "${SERVER_NAME}" does not start sentinel-ir-mcp (${JSON.stringify(entry)})`,
-            `Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
+            rerun);
         return null;
     }
     const runs = `${label}: "${SERVER_NAME}" runs ${entry.command} ${args.join(" ")}`;
     if (entry.command === "npx" && platform === "win32") {
-        add("warn", `${client}.entry`, runs, `On Windows a client may not find "npx" without a shell. Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
+        add("warn", `${client}.entry`, runs, `On Windows a client may not find "npx" without a shell. ${rerun}`);
     } else if (/^[\^~=v]*0\.[0-4](\.|$)/.test(entrySpec(args))) {
-        add("warn", `${client}.entry`, runs, `This entry stays on an older version without Rust support. Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
+        add("warn", `${client}.entry`, runs, `This entry stays on an older version without Rust support. ${rerun}`);
     } else if (/^[\^~=v<>]*\d/.test(entrySpec(args))) {
-        add("warn", `${client}.entry`, runs, `npx keeps starting the copy it downloaded first for a version or range and misses later fixes. Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
+        add("warn", `${client}.entry`, runs, `npx keeps starting the copy it downloaded first for a version or range and misses later fixes. ${rerun}`);
     } else if (entry.command === "npx" || isWindowsNpxWrapper(entry)) {
         add("ok", `${client}.entry`, runs);
     } else {
@@ -469,7 +470,7 @@ function checkConfig(client, file, explicit, project, add, platform, env) {
         } catch (e) {
             if (!(e instanceof AuditLogError)) throw e;
             add("fail", `${client}.audit`, `${label}: ${e.message}; the server will not start`,
-                `Run: npx -y ${PACKAGE_SPEC} setup --client ${client} --audit-log  (or --no-audit-log)`);
+                `Run: npx -y ${PACKAGE_SPEC} setup ${setupFor(client)} --audit-log  (or --no-audit-log)`);
             return { folders: resolved, exclude, audit: null, auditBroken: true };
         }
     }
@@ -544,7 +545,12 @@ const MARK = { ok: "[ok]  ", warn: "[warn]", fail: "[FAIL]", skip: "[skip]" };
 async function runDoctor(opts, io) {
     const checks = [];
     const add = (status, id, message, fix) => checks.push(fix ? { status, id, message, fix } : { status, id, message });
-    const setupHint = opts.client ? `--client ${opts.client}${opts.global ? " --global" : ""}` : "--client <your client>";
+    const project = path.resolve(io.cwd, opts.project || ".");
+    // setup refuses a disk root or the home folder; its hint then names a project.
+    let refused = false;
+    try { validateProject(project, io.env); } catch (e) { refused = e instanceof SetupError && e.message.startsWith("Refusing"); }
+    const setupFor = (client) => `--client ${client}${opts.global && client === "cursor" ? " --global" : ""}${refused ? " --project <your project folder>" : ""}`;
+    const setupHint = setupFor(opts.client || "<your client>");
 
     const nodeVersion = io.nodeVersion || process.versions.node;
     if (Number(nodeVersion.split(".")[0]) >= 20) add("ok", "node", `Node.js v${nodeVersion}`);
@@ -558,7 +564,6 @@ async function runDoctor(opts, io) {
     checkGlobalInstall(io, add);
     checkNpxCache(io.env, io.platform, add, setupHint);
 
-    const project = path.resolve(io.cwd, opts.project || ".");
     if (opts.client && !Object.prototype.hasOwnProperty.call(CLIENTS, opts.client)) {
         add("fail", "client", `Unknown client "${opts.client}"`, `Use one of: ${Object.keys(CLIENTS).join(", ")}.`);
     } else if (opts.client && CLIENTS[opts.client].kind === "command") {
@@ -576,10 +581,10 @@ async function runDoctor(opts, io) {
         const legacy = !opts.config && CLIENTS[client].legacyConfigPath ? CLIENTS[client].legacyConfigPath(ctx) : null;
         if (legacy && !(file && fs.existsSync(file)) && fs.existsSync(legacy)) {
             add("warn", `${client}.location`, `${CLIENTS[client].label}: only the old config ${legacy} exists`,
-                `Current ${CLIENTS[client].label} reads ${file || "a new location"}. Run: npx -y ${PACKAGE_SPEC} setup --client ${client}`);
+                `Current ${CLIENTS[client].label} reads ${file || "a new location"}. Run: npx -y ${PACKAGE_SPEC} setup ${setupFor(client)}`);
             file = legacy;
         }
-        const found = checkConfig(client, file, Boolean(opts.client), project, add, io.platform, io.env);
+        const found = checkConfig(client, file, Boolean(opts.client), project, add, io.platform, io.env, setupFor);
         if (found) configured.push({ label: CLIENTS[client].label, ...found });
         if (found && folders === null) ({ folders, exclude, audit, auditBroken = false } = found);
     }

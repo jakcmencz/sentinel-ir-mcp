@@ -30,6 +30,11 @@ of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.5.13** `doctor` run in the home folder (or a disk root) now prints
+setup fixes that work: they add `--project <your project folder>`, because
+setup never gives the agent the whole home folder. Fixes for the global Cursor
+config keep `--global`.
+
 **0.5.12** answers the four attacks of an outside security review:
 - `analyze_file` and every `analyze_directory` entry carry `sha256`, the
   SHA-256 of the exact bytes analyzed. Before running or relying on a file,
