@@ -25,6 +25,32 @@ privately if unsure.
 Only the newest release of the current minor line (the npm `latest` tag)
 gets fixes.
 
+## Known limits
+
+sentinel-ir-mcp reads code and never runs it. That makes it safe to point at
+untrusted code, and it also sets limits no release can remove. They are normal
+behavior, not vulnerabilities:
+
+- **A checked file can change afterwards (TOCTOU).** `analyze_file` and
+  `analyze_directory` return the `sha256` of the exact bytes analyzed. The
+  hash does not lock the file: compare it right before running or relying on
+  the file, and analyze again if it differs.
+- **Code that exists only at run time is not visible.** Code that is
+  downloaded, decoded or assembled while the program runs is not in the file.
+  The answer names the mechanism (`dynamic_code`, `dynamic_import`,
+  `dynamic_reference`) and raises the risk, but cannot say what that code does.
+- **`low` is not proof of safety.** It means no known risky pattern was found
+  in that file. One file at a time: capabilities split across files are not
+  combined.
+- **Answers contain text chosen by the file's author.** Names of exports,
+  imports, env variables and paths are copied as data. Names that look like
+  instructions to an agent are flagged `suspicious_text`, but the agent must
+  treat every answer as untrusted data, never as instructions.
+- **Not every file is analyzed.** Files over `--max-file-bytes` (default
+  1 MiB), unreadable files, symlinks, hard links and excluded paths are refused
+  or listed under `skipped`, and `incomplete` files may miss facts. A folder
+  result covers only the files it lists as analyzed.
+
 ## Release integrity
 
 Releases are published only from GitLab CI on a protected `v*` tag, through
