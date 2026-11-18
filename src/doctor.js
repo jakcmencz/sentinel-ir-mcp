@@ -549,7 +549,9 @@ async function runDoctor(opts, io) {
     // setup refuses a disk root or the home folder; its hint then names a project.
     let refused = false;
     try { validateProject(project, io.env); } catch (e) { refused = e instanceof SetupError && e.message.startsWith("Refusing"); }
-    const setupFor = (client) => `--client ${client}${opts.global && client === "cursor" ? " --global" : ""}${refused ? " --project <your project folder>" : ""}`;
+    // In the home folder the Cursor project config is the global one.
+    const cursorGlobal = opts.global || realDir(project) === realDir(homeOf(io.env));
+    const setupFor = (client) => `--client ${client}${cursorGlobal && client === "cursor" ? " --global" : ""}${refused ? " --project <your project folder>" : ""}`;
     const setupHint = setupFor(opts.client || "<your client>");
 
     const nodeVersion = io.nodeVersion || process.versions.node;

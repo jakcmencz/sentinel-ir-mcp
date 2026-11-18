@@ -33,7 +33,8 @@ and Rust (and what is not) is listed in the
 **0.5.13** `doctor` run in the home folder (or a disk root) now prints
 setup fixes that work: they add `--project <your project folder>`, because
 setup never gives the agent the whole home folder. Fixes for the global Cursor
-config keep `--global`.
+config (`~/.cursor/mcp.json`, also when doctor runs in the home folder) add
+`--global`, so setup repairs that file and not a new project one.
 
 **0.5.12** answers the four attacks of an outside security review:
 - `analyze_file` and every `analyze_directory` entry carry `sha256`, the
