@@ -126,8 +126,13 @@ async function analyzeFile(requested, roots, { maxFileBytes, excluder = NONE, ha
     if (stat.size > maxFileBytes) {
         throw new AccessError(`File too large: ${requested} is ${stat.size} bytes, limit is ${maxFileBytes}`);
     }
-    const code = await readInside(real, roots, maxFileBytes, requested, excluder, hashes && ((h) => hashes.set(display, h)));
-    return analyzeCode(code, display);
+    let sha256 = null;
+    const code = await readInside(real, roots, maxFileBytes, requested, excluder, (h) => {
+        sha256 = h;
+        if (hashes) hashes.set(display, h);
+    });
+    // The hash of the exact bytes analyzed: compare it before acting on the file.
+    return { ...(await analyzeCode(code, display)), sha256 };
 }
 
 // Breadth-first, sorted walk. Symlinks are never followed; node_modules, .git,
@@ -192,9 +197,9 @@ async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive, excl
 const SIGNAL_RISK = {
     dynamic_code: "critical", process_spawn: "critical", child_process_import: "critical",
     unsafe_deserialization: "critical", native_code: "critical",
-    destructive_fs: "high",
+    destructive_fs: "high", dynamic_import: "high", dynamic_reference: "high",
     disk_write: "medium", outbound_http: "medium", inbound_http: "medium",
-    crypto_use: "medium", secret_comparison: "medium"
+    crypto_use: "medium", secret_comparison: "medium", suspicious_text: "medium"
 };
 const SUMMARY_SIGNALS = 3;
 const SIGNAL_CHARS = 120;
@@ -266,10 +271,10 @@ async function analyzeDirectory(
         }
         // One file that cannot be read or analyzed must not hide the others.
         let ir;
+        let hash = null;
         try {
-            let hash = null;
-            ir = await analyzeCode(await readInside(full, [root], maxFileBytes, rel, excluder, hashes && ((h) => { hash = h; })), rel);
-            if (hash) hashes.set(rel, hash);
+            ir = await analyzeCode(await readInside(full, [root], maxFileBytes, rel, excluder, (h) => { hash = h; }), rel);
+            if (hashes) hashes.set(rel, hash);
         } catch (err) {
             if (err instanceof ExcludedError) {
                 skipped.excluded++;
@@ -280,7 +285,7 @@ async function analyzeDirectory(
             list.push(rel);
             continue;
         }
-        results.push(detail === "full" ? fullEntry(rel, ir) : summaryEntry(rel, ir));
+        results.push({ ...(detail === "full" ? fullEntry(rel, ir) : summaryEntry(rel, ir)), sha256: hash });
     }
     results.sort((a, b) =>
         ((RISK_ORDER[a.risk] ?? 9) - (RISK_ORDER[b.risk] ?? 9)) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));

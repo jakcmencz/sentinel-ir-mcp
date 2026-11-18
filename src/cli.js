@@ -116,7 +116,7 @@ function defaultIo() {
 function quietOnClosedPipe(stream) {
     if (typeof stream?.on !== "function" || stream.listenerCount?.("error")) return;
     stream.on("error", (e) => {
-        if (e && e.code === "EPIPE") process.exit(process.exitCode || 0);
+        if (e && (e.code === "EPIPE" || e.code === "ECONNRESET")) process.exit(process.exitCode || 0);
         throw e;
     });
 }

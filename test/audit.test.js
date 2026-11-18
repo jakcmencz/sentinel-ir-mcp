@@ -561,7 +561,9 @@ test("the log keeps the sha256 of the exact bytes the server read, not the code"
         await client.close();
     }
     try {
-        assert.ok(!first.text.includes("sha256") && !dirText.includes("sha256"), "tool answers are unchanged");
+        assert.equal(JSON.parse(first.text).sha256, sha(raw), "the agent gets the hash the log keeps");
+        assert.equal(JSON.parse(changed.text).sha256, sha(Buffer.concat([raw, Buffer.from(" ")])));
+        for (const f of JSON.parse(dirText).files) assert.equal(f.sha256, sha(fs.readFileSync(path.join(sb.project, f.path))));
         const [, a, b, dir, dirHashes, refused, code] = (await waitForLines(sb.logs, 7)).map((l) => JSON.parse(l));
         assert.equal(dir.hashed, 3);
         assert.match(dir.call, /^[0-9a-f]{12}$/);
