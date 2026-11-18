@@ -646,7 +646,7 @@ the same 17.8 KB JavaScript file, about 107 MB in total, Node 24):
 
 Three runtime dependencies: the official
 [`@modelcontextprotocol/sdk`](https://www.npmjs.com/package/@modelcontextprotocol/sdk),
-`zod` (its schema peer dependency) and `sentinel-ir` (0.5.9 or newer;
+`zod` (its schema peer dependency) and `sentinel-ir` (0.5.11 or newer;
 `doctor` fails when an older copy is loaded). With their own
 dependencies that is about 100 packages in `node_modules`; `npm audit`
 reported 0 vulnerabilities at release time (0.4.0: after updating
