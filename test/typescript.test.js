@@ -73,10 +73,10 @@ test("analyze_directory includes TypeScript files with their language", async ()
     assert.deepEqual(out.files.map((f) => [f.path, f.language, f.risk, f.analysisStatus]), [
         ["ts/run.cts", "typescript", "critical", "complete"],
         ["ts/App.tsx", "tsx", "medium", "complete"],
+        ["ts/broken.ts", "typescript", "medium", "incomplete"],
         ["ts/server.ts", "typescript", "medium", "complete"],
-        ["ts/broken.ts", "typescript", "low", "incomplete"],
         ["ts/types.d.ts", "typescript", "low", "complete"]
     ]);
     assert.deepEqual(out.statusCounts, { complete: 4, incomplete: 1 });
-    assert.deepEqual(out.incomplete, ["ts/broken.ts"], "an incomplete file is surfaced even though it sorts last by risk");
+    assert.deepEqual(out.incomplete, ["ts/broken.ts"], "an incomplete file is surfaced separately");
 });

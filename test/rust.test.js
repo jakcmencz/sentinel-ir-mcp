@@ -65,7 +65,7 @@ test("analyze_directory includes Rust files and skips only Cargo's tagged target
         ["rs/build.rs", "rust", "high", "complete"],
         ["rs/src/net.rs", "rust", "medium", "complete"],
         ["rs/src/lib.rs", "rust", "low", "complete"],
-        ["rs/src/broken.rs", "rust", "low", "incomplete"],
+        ["rs/src/broken.rs", "rust", "medium", "incomplete"],
         ["web/target/app.js", "javascript", "critical", "complete"],
         ["fake/target/hidden.rs", "rust", "critical", "complete"]
     ]) assert.deepEqual(rows.find((r) => r[0] === row[0]), row);

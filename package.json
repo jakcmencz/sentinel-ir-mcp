@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "sentinel-ir": "^0.5.11",
+    "sentinel-ir": "^0.5.12",
     "zod": "^4.1.0"
   },
   "keywords": [

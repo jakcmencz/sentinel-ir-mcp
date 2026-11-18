@@ -61,7 +61,7 @@ test("analyze_directory includes Python files and skips __pycache__ and venv", a
         ["py/native.py", "python", "critical", "complete"],
         ["py/run.py", "python", "critical", "complete"],
         ["py/app.py", "python", "medium", "complete"],
-        ["py/broken.py", "python", "low", "incomplete"],
+        ["py/broken.py", "python", "medium", "incomplete"],
         ["py/stubs.pyi", "python", "low", "complete"]
     ]);
     assert.ok(result.incomplete.includes("py/broken.py"));
