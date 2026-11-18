@@ -30,6 +30,13 @@ of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.5.11** installs no native code: `sentinel-ir` 0.5.11 dropped its optional
+native `tree-sitter` packages (4 packages, about 7.7 MB, two `node-gyp-build`
+install scripts) that this server never used, since it always analyzes through
+the bundled WebAssembly. npm 11 no longer asks about `allowScripts`. Security
+reports: [SECURITY.md](SECURITY.md); maintenance and sponsorship rules:
+[GOVERNANCE.md](GOVERNANCE.md).
+
 **0.5.10** fixes what a third user test (0.5.9) found:
 
 - `doctor --client vscode` / `claude-code` no longer reports "Excluded:
