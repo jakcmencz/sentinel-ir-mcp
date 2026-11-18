@@ -33,7 +33,7 @@ test("analyze_directory returns short entries by default", async () => {
     assert.equal(out.detail, "summary");
     const danger = byPath(out)["danger.js"];
     assert.deepEqual(Object.keys(danger),
-        ["path", "risk", "analysisStatus", "language", "lines", "operations", "riskSignals"]);
+        ["path", "risk", "analysisStatus", "language", "lines", "operations", "riskSignals", "sha256"]);
     assert.equal(danger.risk, "critical");
     assert.deepEqual(danger.operations, ["dynamicEval", "processSpawn", "childProcess"]);
     assert.deepEqual(danger.riskSignals,
@@ -73,7 +73,7 @@ test("detail full keeps the 0.4.1 entries; both agree on order, risk and counts"
     const full = (await call(client, "analyze_directory", { detail: "full" })).structuredContent;
     assert.equal(full.detail, "full");
     assert.deepEqual(Object.keys(byPath(full)["danger.js"]),
-        ["path", "analysisStatus", "language", "risk", "objective", "forbidden", "lines", "facts"]);
+        ["path", "analysisStatus", "language", "risk", "objective", "forbidden", "lines", "facts", "sha256"]);
     assert.deepEqual(summary.files.map((f) => [f.path, f.risk, f.analysisStatus]),
         full.files.map((f) => [f.path, f.risk, f.analysisStatus]));
     for (const key of ["analyzed", "riskCounts", "statusCounts", "incomplete", "skipped", "truncated"]) {

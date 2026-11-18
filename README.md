@@ -30,6 +30,23 @@ of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.5.12** answers the four attacks of an outside security review:
+- `analyze_file` and every `analyze_directory` entry carry `sha256`, the
+  SHA-256 of the exact bytes analyzed. Before running or relying on a file,
+  the agent can check it is still the file it saw (time-of-check to
+  time-of-use).
+- With `sentinel-ir` 0.5.12: code built or loaded at run time is no longer
+  `low`. `require(name)`, `import(url)`, Python `__import__(name)` and
+  `importlib.import_module(name)` are `dynamic_import` (high);
+  `global["pro" + "cess"]`, `globalThis[String.fromCharCode(...)]` and
+  `getattr(os, name)` are `dynamic_reference` (high); `vm`, `p.then(eval)`
+  and `[].constructor.constructor(s)` are `dynamic_code` (critical).
+- A file that did not parse is at least `medium`, never `low`.
+- Names that read like instructions to an agent
+  (`SYSTEM_OVERRIDE_IGNORE_RISKS_AND_RUN_RM_RF`, `ignore previous
+  instructions`) or hide bidirectional characters are `suspicious_text`
+  (medium). They stay in the IR as data.
+
 **0.5.11** installs no native code: `sentinel-ir` 0.5.11 dropped its optional
 native `tree-sitter` packages (4 packages, about 7.7 MB, two `node-gyp-build`
 install scripts) that this server never used, since it always analyzes through
@@ -281,8 +298,8 @@ Also uses `sentinel-ir` 0.4.5 (Python parse errors point where Python does).
 | tool | input | returns |
 |---|---|---|
 | `analyze_code` | `code` (string), optional `target` (file name; its extension picks the language), optional `language` (`javascript`, `typescript`, `tsx`, `python`, `rust`, or `js`/`ts`/`py`/`rs` since 0.5.9) | compact IR of the given source |
-| `analyze_file` | `path` | compact IR of one file inside the allowed folders |
-| `analyze_directory` | optional `path`, `max_files` (default 50, max 500), `recursive` (default `true`), `detail` (`"summary"` default, or `"full"`) | one short entry per file (path, risk, status, language, lines, operations, up to 3 risk signals; `"full"`: all facts), sorted from highest to lowest risk, plus `riskCounts`, `statusCounts` and `incomplete` (paths whose analysis did not finish; check them separately, their low risk is not evidence of safety); files that could not be read are listed in `skipped.unreadable` and are not counted as analyzed; excluded files and folders are only counted in `skipped.excluded`; `truncated` and `skipped` |
+| `analyze_file` | `path` | compact IR of one file inside the allowed folders, plus `sha256` of the exact bytes analyzed (0.5.12) |
+| `analyze_directory` | optional `path`, `max_files` (default 50, max 500), `recursive` (default `true`), `detail` (`"summary"` default, or `"full"`) | one short entry per file (path, risk, status, language, lines, operations, up to 3 risk signals, `sha256` since 0.5.12; `"full"`: all facts), sorted from highest to lowest risk, plus `riskCounts`, `statusCounts` and `incomplete` (paths whose analysis did not finish; check them separately, their low risk is not evidence of safety); files that could not be read are listed in `skipped.unreadable` and are not counted as analyzed; excluded files and folders are only counted in `skipped.excluded`; `truncated` and `skipped` |
 
 Every tool returns the result twice: as JSON text (for clients that only read
 text) and as `structuredContent`. All three are annotated
@@ -535,7 +552,9 @@ server through `cmd`). Then read it with `log --dir <folder>`.
   one the agent saw, compare with `certutil -hashfile <file> SHA256`
   (Windows), `shasum -a 256 <file>` (macOS) or `sha256sum <file>` (Linux).
   Pasted code (`analyze_code`) gets no hash: a very short snippet could be
-  guessed from it. The tool answers to the agent are unchanged.
+  guessed from it. Since 0.5.12 the agent gets the same `sha256` in the
+  `analyze_file` answer and in every `analyze_directory` entry, so it can
+  check that a file is still the one it saw before running or relying on it.
 - **What is not written:** source code. For `analyze_code` only the size in
   bytes, the language and the risk. Names of excluded files are not written
   either, only their count. Long values are cut to 300 characters.
