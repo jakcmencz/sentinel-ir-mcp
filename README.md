@@ -30,6 +30,11 @@ of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.5.14** `doctor` no longer opens npm's config files (`~/.npmrc` and
+others may hold registry tokens). It takes npm's global prefix from the
+environment `npx` sets, or asks npm itself (`npm prefix -g`, no shell). The
+release job sets the `stable-0.5` tag without writing a token file.
+
 **0.5.13** `doctor` run in the home folder (or a disk root) now prints
 setup fixes that work: they add `--project <your project folder>`, because
 setup never gives the agent the whole home folder. Fixes for the global Cursor
