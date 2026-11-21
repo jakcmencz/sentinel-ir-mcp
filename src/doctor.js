@@ -56,19 +56,39 @@ function npxCopyDir(dir = PACKAGE_DIR) {
     return m ? m[1] : null;
 }
 
-// npm's global prefix as npm itself resolves it, or null. npm answers in a child process,
-// so doctor never opens npm's config files: they may hold registry tokens.
-function npmGlobalPrefix(env, platform, execPath, timeoutMs = 5000) {
+// The npm-cli.js that `npm` would run: the one npx started us with, the one bundled with node, else
+// the first npm on PATH (Debian's /usr/bin/npm, a standalone npm under another prefix).
+function npmCli(env, platform, execPath) {
     const p = platform === "win32" ? path.win32 : path.posix;
     const nodeDir = p.dirname(execPath);
     const bundled = platform === "win32" ? p.join(nodeDir, "node_modules") : p.join(p.dirname(nodeDir), "lib", "node_modules");
-    const cli = [env.npm_execpath, p.join(bundled, "npm", "bin", "npm-cli.js")]
-        .find((f) => f && /[\\/]npm-cli\.js$/.test(f) && fs.existsSync(f));
+    const onPath = (env.PATH || env.Path || "").split(platform === "win32" ? ";" : ":").filter(Boolean).map((d) => {
+        if (platform === "win32") return p.join(d, "node_modules", "npm", "bin", "npm-cli.js");
+        try { return fs.realpathSync(p.join(d, "npm")); } catch { return null; }
+    });
+    return [env.npm_execpath, p.join(bundled, "npm", "bin", "npm-cli.js"), ...onPath]
+        .find((f) => f && /[\\/]npm-cli\.js$/.test(f) && fs.existsSync(f)) || null;
+}
+
+// npm's global prefix as npm itself resolves it, or null. npm answers in a child process,
+// so doctor never opens npm's config files: they may hold registry tokens. npm writes no log
+// (an empty temporary logs-dir, so it cleans no one else's logs) and checks for no update.
+function npmGlobalPrefix(env, platform, execPath, timeoutMs = 5000) {
+    const p = platform === "win32" ? path.win32 : path.posix;
+    const cli = npmCli(env, platform, execPath);
     if (!cli) return null;
-    const r = require("child_process").spawnSync(execPath, [cli, "prefix", "-g"],
-        { env, encoding: "utf8", timeout: timeoutMs, windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
-    const out = r.status === 0 && typeof r.stdout === "string" ? r.stdout.trim() : "";
-    return out && !out.includes("\n") && p.isAbsolute(out) ? out : null;
+    let logs;
+    try {
+        logs = fs.mkdtempSync(path.join(require("os").tmpdir(), "sentinel-ir-mcp-npm-"));
+        const r = require("child_process").spawnSync(execPath, [cli, "prefix", "-g", "--logs-dir", logs, "--logs-max", "0", "--no-update-notifier"],
+            { env, encoding: "utf8", timeout: timeoutMs, windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
+        const out = r.status === 0 && typeof r.stdout === "string" ? r.stdout.trim() : "";
+        return out && !out.includes("\n") && p.isAbsolute(out) ? out : null;
+    } catch {
+        return null;
+    } finally {
+        if (logs) try { fs.rmSync(logs, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
 }
 
 // Where npm installs a global sentinel-ir-mcp: the first entry is npm's prefix now; the rest are other

@@ -436,6 +436,32 @@ test("npmGlobalPrefix asks the real npm, which reads its own config (doctor open
     } finally { sb.cleanup(); }
 });
 
+test("npmGlobalPrefix finds npm on PATH, writes no npm log and checks for no update", () => {
+    const sb = sandbox();
+    try {
+        const win = process.platform === "win32";
+        const npmDir = win ? path.join(sb.base, "npmbin") : path.join(sb.base, "share", "npm");
+        const cli = win ? path.join(npmDir, "node_modules", "npm", "bin", "npm-cli.js") : path.join(npmDir, "bin", "npm-cli.js");
+        const seen = path.join(sb.base, "argv.json");
+        fs.mkdirSync(path.dirname(cli), { recursive: true });
+        fs.writeFileSync(cli, `require("fs").writeFileSync(${JSON.stringify(seen)}, JSON.stringify(process.argv.slice(2))); console.log(${JSON.stringify(path.join(sb.base, "standalone"))});\n`);
+        if (!win) {
+            fs.mkdirSync(path.join(sb.base, "usrbin"));
+            fs.symlinkSync(cli, path.join(sb.base, "usrbin", "npm"));
+        }
+        const bin = win ? npmDir : path.join(sb.base, "usrbin");
+        const node = path.join(sb.base, "node", win ? "node.exe" : path.join("bin", "node"));
+        fs.mkdirSync(path.dirname(node), { recursive: true });
+        fs.copyFileSync(process.execPath, node);
+        assert.equal(npmGlobalPrefix({ PATH: [path.join(sb.base, "empty"), bin].join(path.delimiter) }, process.platform, node), path.join(sb.base, "standalone"));
+        const argv = JSON.parse(fs.readFileSync(seen, "utf8"));
+        assert.deepEqual(argv.slice(0, 2), ["prefix", "-g"]);
+        assert.equal(argv[argv.indexOf("--logs-max") + 1], "0");
+        assert.ok(argv.includes("--no-update-notifier"));
+        assert.ok(!fs.existsSync(argv[argv.indexOf("--logs-dir") + 1]), "temporary logs-dir removed");
+    } finally { sb.cleanup(); }
+});
+
 test("proxyFor: NO_PROXY with IPv6, ports and trailing dots; unusable proxies are not bypassed", () => {
     const P = "http://p:3128";
     const via = (u, env) => proxyFor(new URL(u), { HTTPS_PROXY: P, HTTP_PROXY: P, ...env });
