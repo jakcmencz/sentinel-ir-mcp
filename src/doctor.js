@@ -72,13 +72,13 @@ function npmCli(env, platform, execPath) {
 
 // npm's global prefix as npm itself resolves it, or null. npm answers in a child process,
 // so doctor never opens npm's config files: they may hold registry tokens. npm writes no log
-// (a fresh temporary logs-dir, so it cleans no one else's logs) and checks for no update.
+// and cleans no one's logs, and checks for no update.
 function npmGlobalPrefix(env, platform, execPath, timeoutMs = 5000) {
     const p = platform === "win32" ? path.win32 : path.posix;
     const cli = npmCli(env, platform, execPath);
     if (!cli) return null;
-    // not created here: npm makes it, and with a read-only temp folder simply writes no log
-    const logs = path.join(require("os").tmpdir(), `sentinel-ir-mcp-npm-${process.pid}-${crypto.randomBytes(6).toString("hex")}`);
+    // a path under a file: npm cannot create it, so it writes no log and lists (and cleans) no log folder
+    const logs = p.join(cli, "no-logs");
     try {
         const r = require("child_process").spawnSync(execPath, [cli, "prefix", "-g", "--logs-dir", logs, "--logs-max", "0", "--no-update-notifier"],
             { env, encoding: "utf8", timeout: timeoutMs, windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
@@ -86,8 +86,6 @@ function npmGlobalPrefix(env, platform, execPath, timeoutMs = 5000) {
         return out && !out.includes("\n") && p.isAbsolute(out) ? out : null;
     } catch {
         return null;
-    } finally {
-        try { fs.rmSync(logs, { recursive: true, force: true }); } catch { /* best effort */ }
     }
 }
 

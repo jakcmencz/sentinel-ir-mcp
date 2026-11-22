@@ -458,7 +458,9 @@ test("npmGlobalPrefix finds npm on PATH, writes no npm log and checks for no upd
         assert.deepEqual(argv.slice(0, 2), ["prefix", "-g"]);
         assert.equal(argv[argv.indexOf("--logs-max") + 1], "0");
         assert.ok(argv.includes("--no-update-notifier"));
-        assert.ok(!fs.existsSync(argv[argv.indexOf("--logs-dir") + 1]), "temporary logs-dir removed");
+        const logs = argv[argv.indexOf("--logs-dir") + 1];
+        assert.equal(path.dirname(logs), cli, "logs-dir under a file: nothing to create, list or clean");
+        assert.ok(!fs.existsSync(logs));
     } finally { sb.cleanup(); }
 });
 
