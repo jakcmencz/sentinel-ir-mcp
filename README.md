@@ -1,6 +1,8 @@
 # Sentinel-IR-MCP
 
+[![Glama](https://glama.ai/mcp/servers/jakcmencz/sentinel-ir-mcp/badges/score.svg)](https://glama.ai/mcp/servers/jakcmencz/sentinel-ir-mcp)
 [![M8ven Score](https://m8ven.ai/badge/mcp/jakcmencz/sentinel-ir-mcp?variant=verified)](https://m8ven.ai/mcp/jakcmencz/sentinel-ir-mcp)
+[![ProtocolProbe](https://protocolprobe.com/api/v1/badge/io.github.jakcmencz/sentinel-ir-mcp)](https://protocolprobe.com/mcp/servers/io.github.jakcmencz/sentinel-ir-mcp)
 
 MCP server for [`sentinel-ir`](https://www.npmjs.com/package/sentinel-ir):
 it lets AI agents in Claude Desktop, Cursor, Windsurf or any other
