@@ -137,3 +137,75 @@ test("a real unreadable file (chmod 000) is skipped", { skip: (process.platform 
         fs.rmSync(sub, { recursive: true, force: true });
     }
 });
+
+test("a truncated scan counts the files it left out and warns that riskCounts are partial", async () => {
+    const big = fs.mkdtempSync(path.join(os.tmpdir(), "sir-trunc-"));
+    try {
+        for (let i = 0; i < 50; i++) fs.writeFileSync(path.join(big, `a${String(i).padStart(2, "0")}.js`), `export const a${i} = ${i};\n`);
+        fs.mkdirSync(path.join(big, "zz"));
+        for (let i = 0; i < 5; i++) fs.writeFileSync(path.join(big, "zz", `evil${i}.js`), "require('child_process').exec(process.argv[2]);\n");
+        const part = await analyzeDirectory(".", [big], { ...LIMITS, maxFiles: 50 });
+        assert.equal(part.truncated, true);
+        assert.equal(part.notScanned, 5);
+        assert.equal(part.riskCounts.critical, 0);
+        assert.match(part.warning, /5 more source file\(s\) past max_files 50/);
+        assert.match(part.warning, /not a clean result/);
+        assert.equal(Object.keys(part)[1], "warning", "the warning comes before the counts");
+        const all = await analyzeDirectory(".", [big], { ...LIMITS, maxFiles: 500 });
+        assert.equal(all.truncated, false);
+        assert.equal(all.notScanned, 0);
+        assert.equal(all.warning, undefined);
+        assert.equal(all.riskCounts.critical, 5);
+    } finally { fs.rmSync(big, { recursive: true, force: true }); }
+});
+
+test("after max_files the walk looks at a bounded number of entries and says the count is a lower bound", async () => {
+    const big = fs.mkdtempSync(path.join(os.tmpdir(), "sir-cap-"));
+    try {
+        fs.writeFileSync(path.join(big, "a.js"), "export const a = 1;\n");
+        fs.writeFileSync(path.join(big, "b.js"), "export const b = 2;\n");
+        fs.mkdirSync(path.join(big, "zz"));
+        for (let i = 0; i < 10001; i++) fs.writeFileSync(path.join(big, "zz", `n${i}.txt`), "");
+        fs.writeFileSync(path.join(big, "zz", "zzz.js"), "require('child_process').exec(process.argv[2]);\n");
+        const part = await analyzeDirectory(".", [big], { ...LIMITS, maxFiles: 1 });
+        assert.equal(part.analyzed, 1);
+        assert.equal(part.truncated, true);
+        assert.ok(part.notScanned >= 1);
+        assert.match(part.warning, /at least \d+ more source file\(s\) past max_files 1/);
+    } finally {
+        fs.rmSync(big, { recursive: true, force: true });
+    }
+});
+
+test("counting the files past max_files waits for the analysis and stops at the time budget", async () => {
+    const big = fs.mkdtempSync(path.join(os.tmpdir(), "sir-late-"));
+    try {
+        for (const n of ["a.js", "b.js", "c.js"]) fs.writeFileSync(path.join(big, n), "export const x = 1;\n");
+        const part = await analyzeDirectory(".", [big], { ...LIMITS, maxFiles: 1, timeBudgetMs: 0 });
+        assert.equal(part.truncated, true);
+        assert.equal(part.notScanned, 1);
+        assert.match(part.warning, /at least 1 more source file\(s\) past max_files 1/);
+    } finally {
+        fs.rmSync(big, { recursive: true, force: true });
+    }
+});
+
+test("empty folders before and after max_files do not stop the scan", async () => {
+    const big = fs.mkdtempSync(path.join(os.tmpdir(), "sir-empty-"));
+    try {
+        fs.mkdirSync(path.join(big, "a-empty"));
+        fs.mkdirSync(path.join(big, "b"));
+        fs.writeFileSync(path.join(big, "b", "x.js"), "export const x = 1;\n");
+        fs.mkdirSync(path.join(big, "c-empty"));
+        fs.mkdirSync(path.join(big, "d"));
+        fs.writeFileSync(path.join(big, "d", "y.js"), "export const y = 1;\n");
+        const all = await analyzeDirectory(".", [big], LIMITS);
+        assert.equal(all.analyzed, 2);
+        fs.mkdirSync(path.join(big, "e-empty"));
+        const part = await analyzeDirectory(".", [big], { ...LIMITS, maxFiles: 1 });
+        assert.equal(part.analyzed, 1);
+        assert.equal(part.notScanned, 1);
+    } finally {
+        fs.rmSync(big, { recursive: true, force: true });
+    }
+});
