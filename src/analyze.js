@@ -163,8 +163,8 @@ async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive, excl
                 } catch {
                     // Removed or made unreadable while the scan runs.
                     skipped.unreadable.push(path.relative(root, walk.current).split(path.sep).join("/") || ".");
-                    continue;
                 }
+                continue;
             }
             const entry = walk.entries.shift();
             if (walk.truncated && (++walk.looked > NOT_SCANNED_CAP || Date.now() >= deadline)) {

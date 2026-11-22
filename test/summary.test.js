@@ -189,3 +189,23 @@ test("counting the files past max_files waits for the analysis and stops at the 
         fs.rmSync(big, { recursive: true, force: true });
     }
 });
+
+test("empty folders before and after max_files do not stop the scan", async () => {
+    const big = fs.mkdtempSync(path.join(os.tmpdir(), "sir-empty-"));
+    try {
+        fs.mkdirSync(path.join(big, "a-empty"));
+        fs.mkdirSync(path.join(big, "b"));
+        fs.writeFileSync(path.join(big, "b", "x.js"), "export const x = 1;\n");
+        fs.mkdirSync(path.join(big, "c-empty"));
+        fs.mkdirSync(path.join(big, "d"));
+        fs.writeFileSync(path.join(big, "d", "y.js"), "export const y = 1;\n");
+        const all = await analyzeDirectory(".", [big], LIMITS);
+        assert.equal(all.analyzed, 2);
+        fs.mkdirSync(path.join(big, "e-empty"));
+        const part = await analyzeDirectory(".", [big], { ...LIMITS, maxFiles: 1 });
+        assert.equal(part.analyzed, 1);
+        assert.equal(part.notScanned, 1);
+    } finally {
+        fs.rmSync(big, { recursive: true, force: true });
+    }
+});
