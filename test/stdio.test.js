@@ -162,3 +162,14 @@ test("analyze_code takes the language in any case", async () => {
     const bad = await call(client, "analyze_code", { code: "x", language: "Ruby" });
     assert.equal(bad.isError, true);
 });
+
+test("started by hand in a terminal, the server says how to connect it; an AI app (pipe) gets no such text", { skip: process.platform === "win32" || require("child_process").spawnSync("script", ["--version"]).status !== 0 }, () => {
+    const { spawnSync } = require("child_process");
+    const bin = require("path").join(__dirname, "..", "bin", "sentinel-ir-mcp.js");
+    const tty = spawnSync("script", ["-qec", `${JSON.stringify(process.execPath)} ${JSON.stringify(bin)}`, "/dev/null"], { input: "\u0004", encoding: "utf8", timeout: 15000 });
+    assert.match(tty.stdout, /is an MCP server: your AI app starts it/);
+    assert.match(tty.stdout, /npx -y sentinel-ir-mcp@stable-0\.5 setup/);
+    const pipe = spawnSync(process.execPath, [bin], { input: "", encoding: "utf8", timeout: 15000 });
+    assert.equal(pipe.stderr, "");
+    assert.equal(pipe.stdout, "");
+});

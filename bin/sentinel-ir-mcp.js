@@ -109,6 +109,13 @@ async function main() {
         return;
     }
     const server = createServer(parseArgs(process.argv.slice(2)));
+    if (process.stdin.isTTY) {
+        process.stderr.write(
+            `sentinel-ir-mcp ${version} is an MCP server: your AI app starts it and talks to it.\n` +
+            "To connect it to Cursor, Windsurf, Claude Desktop, VS Code or Claude Code, run in your project folder:\n" +
+            "  npx -y sentinel-ir-mcp@stable-0.5 setup\n" +
+            "Press Ctrl+C to quit.\n");
+    }
     await server.connect(new StdioServerTransport());
 }
 

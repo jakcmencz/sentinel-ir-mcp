@@ -628,6 +628,13 @@ async function runDoctor(opts, io) {
         if (c.audit) add("ok", "audit", `${t}Audit log: on, in ${c.audit.path} (${describeAuditFolder(c.audit.path)}); see it: npx -y ${PACKAGE_SPEC} log${c.audit.dir ? ` --dir "${c.audit.dir}"` : ""}`);
         else if (!c.auditBroken) add("ok", "audit", `${t}Audit log: off (turn it on: npx -y ${PACKAGE_SPEC} setup ${setupHint} --audit-log)`);
     }
+    const notConnected = !opts.client && !opts.config && configured.length === 0;
+    if (notConnected) {
+        add("warn", "connected",
+            `No AI app found that uses Sentinel-IR: no ${names.map((c) => CLIENTS[c].label).join(", ").replace(/, ([^,]*)$/, " or $1")} config has a "${SERVER_NAME}" server. ` +
+            "VS Code and Claude Code keep their own list; if you set it up there, check with doctor --client vscode or --client claude-code",
+            `Run: npx -y ${PACKAGE_SPEC} setup${refused ? " --project <your project folder>" : opts.project ? ` --project "${project}"` : ""}`);
+    }
     if (configured.length > 1) add("ok", "mcp.settings", `The connection test below uses the ${configured[0].label} settings; check another client with --client.`);
     await checkHandshake(folders, exclude, audit, add, opts.timeoutMs || 30000);
 
@@ -638,7 +645,9 @@ async function runDoctor(opts, io) {
         for (const c of checks) io.stdout.write(`${MARK[c.status]} ${c.message}\n${c.fix ? `       -> ${c.fix}\n` : ""}`);
         const warnings = checks.filter((c) => c.status === "warn").length;
         const warned = warnings ? `, ${warnings} warning${warnings > 1 ? "s" : ""} above` : "";
-        io.stdout.write(failed ? `\nSome checks failed${warned}.\n` : `\nAll checks passed${warned}.\n`);
+        io.stdout.write(failed ? `\nSome checks failed${warned}.\n`
+            : notConnected ? `\nSentinel-IR works, but doctor found no AI app that uses it: see "No AI app found" above${warnings > 1 ? `, ${warnings - 1} more warning${warnings > 2 ? "s" : ""} above` : ""}.\n`
+                : `\nAll checks passed${warned}.\n`);
     }
     return failed ? 1 : 0;
 }
