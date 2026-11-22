@@ -631,9 +631,9 @@ async function runDoctor(opts, io) {
     const notConnected = !opts.client && !opts.config && configured.length === 0;
     if (notConnected) {
         add("warn", "connected",
-            `Not connected to an AI app yet: no ${names.map((c) => CLIENTS[c].label).join(", ").replace(/, ([^,]*)$/, " or $1")} config has a "${SERVER_NAME}" server ` +
-            "(VS Code and Claude Code keep their own list: doctor --client vscode or --client claude-code)",
-            `Run: npx -y ${PACKAGE_SPEC} setup${refused ? " --project <your project folder>" : ""}`);
+            `No AI app found that uses Sentinel-IR: no ${names.map((c) => CLIENTS[c].label).join(", ").replace(/, ([^,]*)$/, " or $1")} config has a "${SERVER_NAME}" server. ` +
+            "VS Code and Claude Code keep their own list; if you set it up there, check with doctor --client vscode or --client claude-code",
+            `Run: npx -y ${PACKAGE_SPEC} setup${refused ? " --project <your project folder>" : opts.project ? ` --project "${project}"` : ""}`);
     }
     if (configured.length > 1) add("ok", "mcp.settings", `The connection test below uses the ${configured[0].label} settings; check another client with --client.`);
     await checkHandshake(folders, exclude, audit, add, opts.timeoutMs || 30000);
@@ -646,7 +646,7 @@ async function runDoctor(opts, io) {
         const warnings = checks.filter((c) => c.status === "warn").length;
         const warned = warnings ? `, ${warnings} warning${warnings > 1 ? "s" : ""} above` : "";
         io.stdout.write(failed ? `\nSome checks failed${warned}.\n`
-            : notConnected ? `\nSentinel-IR works, but no AI app is connected yet: run setup (see above)${warnings > 1 ? `, ${warnings - 1} more warning${warnings > 2 ? "s" : ""} above` : ""}.\n`
+            : notConnected ? `\nSentinel-IR works, but doctor found no AI app that uses it: see "No AI app found" above${warnings > 1 ? `, ${warnings - 1} more warning${warnings > 2 ? "s" : ""} above` : ""}.\n`
                 : `\nAll checks passed${warned}.\n`);
     }
     return failed ? 1 : 0;

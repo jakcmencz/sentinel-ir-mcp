@@ -112,9 +112,9 @@ test("doctor without a client checks configs it finds and the project folder; te
         assert.equal(r.code, 0, r.stdout);
         assert.match(r.stdout, /\[skip\] Windsurf: no config/);
         assert.match(r.stdout, /\[ok\] {3}Tools: analyze_code, analyze_directory, analyze_file/);
-        assert.match(r.stdout, /\[warn\] Not connected to an AI app yet/);
+        assert.match(r.stdout, /\[warn\] No AI app found that uses Sentinel-IR: no Cursor, Windsurf or Claude Desktop config/);
         assert.match(r.stdout, /-> Run: npx -y sentinel-ir-mcp@stable-0\.5 setup\n/);
-        assert.match(r.stdout, /\nSentinel-IR works, but no AI app is connected yet: run setup \(see above\)\.\n$/);
+        assert.match(r.stdout, /\nSentinel-IR works, but doctor found no AI app that uses it: see "No AI app found" above\.\n$/);
         assert.doesNotMatch(r.stdout, /All checks passed/);
         const missing = await run(sb, "doctor", ["--project", path.join(sb.base, "nope")]);
         assert.equal(missing.code, 1);
@@ -370,7 +370,8 @@ test("doctor summary counts warnings", async () => {
         const ok = await run(sb, "doctor", []);
         assert.match(ok.stdout, /\nAll checks passed\.\n$/);
         const none = await run(sb, "doctor", ["--project", sb.base], { io: { fetchDistTags: newerTags, packageDir: "/usr/lib/node_modules/sentinel-ir-mcp" } });
-        assert.match(none.stdout, /no AI app is connected yet: run setup \(see above\), \d+ more warnings? above\.\n$/);
+        assert.match(none.stdout, /no AI app that uses it: see "No AI app found" above, \d+ more warnings? above\.\n$/);
+        assert.ok(none.stdout.includes(`-> Run: npx -y sentinel-ir-mcp@stable-0.5 setup --project "${sb.base}"\n`), "the hint keeps the chosen project");
     } finally { sb.cleanup(); }
 });
 
