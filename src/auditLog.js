@@ -139,6 +139,7 @@ function describeCall(tool, args, outcome) {
         if (r.truncated) {
             entry.truncated = true;
             entry.notScanned = r.notScanned;
+            if (r.notScannedAtLeast) entry.notScannedAtLeast = true;
         }
         if (r.timedOut) entry.timedOut = true;
         // sha256 of every analyzed file, so the user can check later which

@@ -636,4 +636,7 @@ test("a truncated folder call logs notScanned and the log view shows it", () => 
     assert.equal(e.notScanned, 5);
     assert.match(describe(e)[0], /stopped at the file limit, 5 source file\(s\) not scanned/);
     assert.match(describe({ ...e, notScanned: undefined })[0], /stopped at the file limit$/);
+    const capped = describeCall("analyze_directory", { path: "." }, { result: { ...result, notScannedAtLeast: true } });
+    assert.equal(capped.notScannedAtLeast, true);
+    assert.match(describe(capped)[0], /at least 5 source file\(s\) not scanned/);
 });

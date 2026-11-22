@@ -73,7 +73,7 @@ function describe(e) {
         if (links > 0) extra.push(`${links} not read (several hard links)`);
         if (e.truncated) {
             const n = Number(e.notScanned);
-            extra.push(`stopped at the file limit${n > 0 ? `, ${n} source file(s) not scanned` : ""}`);
+            extra.push(`stopped at the file limit${n > 0 ? `, ${e.notScannedAtLeast ? "at least " : ""}${n} source file(s) not scanned` : ""}`);
         }
         if (e.timedOut) extra.push("stopped at the time limit");
         if (Number(e.hashed) > 0) extra.push(`sha256 of ${Number(e.hashed)} file(s) in log --json`);

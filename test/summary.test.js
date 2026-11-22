@@ -185,6 +185,7 @@ test("counting the files past max_files waits for the analysis and stops at the 
         assert.equal(part.truncated, true);
         assert.equal(part.notScanned, 1);
         assert.match(part.warning, /at least 1 more source file\(s\) past max_files 1/);
+        assert.equal(part.notScannedAtLeast, true);
     } finally {
         fs.rmSync(big, { recursive: true, force: true });
     }
