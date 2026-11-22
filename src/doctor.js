@@ -631,7 +631,7 @@ async function runDoctor(opts, io) {
     const notConnected = !opts.client && !opts.config && configured.length === 0;
     if (notConnected) {
         add("warn", "connected",
-            `Not connected to an AI app yet: no ${names.map((c) => CLIENTS[c].label).join(", ")} config has a "${SERVER_NAME}" server ` +
+            `Not connected to an AI app yet: no ${names.map((c) => CLIENTS[c].label).join(", ").replace(/, ([^,]*)$/, " or $1")} config has a "${SERVER_NAME}" server ` +
             "(VS Code and Claude Code keep their own list: doctor --client vscode or --client claude-code)",
             `Run: npx -y ${PACKAGE_SPEC} setup${refused ? " --project <your project folder>" : ""}`);
     }
