@@ -28,3 +28,9 @@ test("an unknown or prefix-only version has no notes", () => {
     assert.equal(releaseNotes("**1.2.30** x\n", "1.2.3"), null);
     assert.equal(releaseNotes(README, "9.9.9"), null);
 });
+
+test("README links work on npm: no relative links (npm resolves them to /package/<file>)", () => {
+    const relative = [...README.matchAll(/\]\(([^)\s]+)\)/g)].map((m) => m[1])
+        .filter((u) => !/^(https?:|mailto:|#|cursor:|vscode:)/.test(u));
+    assert.deepEqual(relative, []);
+});

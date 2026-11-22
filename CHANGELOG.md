@@ -3,6 +3,9 @@
 Release notes of `sentinel-ir-mcp`, newest first. Each version is on npm:
 `https://www.npmjs.com/package/sentinel-ir-mcp/v/<version>`.
 
+**0.5.18** README links to `CHANGELOG.md`, `COMPATIBILITY.md`, `LICENSE` and
+`NOTICE` work on npm too (they pointed to missing npm pages).
+
 **0.5.17** easier first steps:
 - Started by hand in a terminal, the server now says what it is and how to
   connect it (`setup`) instead of waiting silently.

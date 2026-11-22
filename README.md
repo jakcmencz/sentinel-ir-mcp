@@ -51,15 +51,10 @@ and Rust (and what is not) is listed in the
 
 ## What's new
 
-Older versions: [CHANGELOG.md](CHANGELOG.md).
+Older versions: [CHANGELOG.md](https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/blob/main/CHANGELOG.md).
 
-**0.5.17** easier first steps:
-- Started by hand in a terminal, the server now says what it is and how to
-  connect it (`setup`) instead of waiting silently.
-- `doctor` with no AI app connected no longer ends with "All checks passed":
-  it says Sentinel-IR works but is not connected yet, and how to connect it.
-- README starts with a Quick start; older release notes moved to
-  [CHANGELOG.md](CHANGELOG.md). Glama and ProtocolProbe badges.
+**0.5.18** README links to `CHANGELOG.md`, `COMPATIBILITY.md`, `LICENSE` and
+`NOTICE` work on npm too (they pointed to missing npm pages).
 
 ## Tools
 
@@ -138,7 +133,7 @@ On Windows the entry is `"command": "cmd", "args": ["/c", "npx", "-y",
 "sentinel-ir-mcp@stable-0.5", "<folder>"]`: there `npx` is `npx.cmd`, and starting it
 without a shell failed with `ENOENT` on a real Windows runner. For VS Code and
 Claude Code, `setup` prints a PowerShell and a Command Prompt version of the
-command. What was measured on which system: [COMPATIBILITY.md](COMPATIBILITY.md).
+command. What was measured on which system: [COMPATIBILITY.md](https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/blob/main/COMPATIBILITY.md).
 
 `doctor` checks Node.js, the package version (and asks the npm registry, or
 `npm_config_registry`, through npm's proxy settings, whether its `stable-X.Y` tag has a newer release), the client config (valid JSON, a
@@ -189,7 +184,7 @@ passed as `./setup` (or an absolute path); the bare word is the command.
 
 Configs written by older versions pin `sentinel-ir-mcp@0.3` (or `@0.2`) and
 keep running that line. 0.3.x has no native-code detection, and its parser
-stops working in long sessions (see 0.4.0 in [CHANGELOG.md](CHANGELOG.md)); 0.2.x also has no Python
+stops working in long sessions (see 0.4.0 in [CHANGELOG.md](https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/blob/main/CHANGELOG.md)); 0.2.x also has no Python
 support. Run `setup` again for your client (it replaces only the
 `"sentinel-ir"` entry); `doctor` warns about an entry that still pins 0.3 or
 older. If the client still starts an old version, see
@@ -198,7 +193,7 @@ older. If the client still starts an old version, see
 ### One-click install links
 
 These links follow the Cursor and VS Code documentation. They were opened in
-VS Code 1.143 and Cursor 3.26 (see [COMPATIBILITY.md](COMPATIBILITY.md)). A link cannot know your
+VS Code 1.143 and Cursor 3.26 (see [COMPATIBILITY.md](https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/blob/main/COMPATIBILITY.md)). A link cannot know your
 project path, so it uses `${workspaceFolder}`; if your client does not expand
 it, use `setup` instead.
 
@@ -462,7 +457,7 @@ A second CI job runs on a real Windows runner (Node 20/22/24): the full test
 suite, the packed package with `setup`/`doctor` against the real `%APPDATA%`,
 starting the published package through `npx`, and the printed VS Code/Claude
 Code commands pasted into PowerShell 5.1, PowerShell 7 and cmd.exe. See
-[COMPATIBILITY.md](COMPATIBILITY.md). On every push it runs on GitHub Actions
+[COMPATIBILITY.md](https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/blob/main/COMPATIBILITY.md). On every push it runs on GitHub Actions
 in the mirror (`.github/workflows/windows.yml`); on GitLab it runs on release
 tags before `publish`, and by hand on other branches. The informational
 large-file size probe runs on release tags only.
@@ -500,4 +495,4 @@ then brings it back.
 
 ## License
 
-[Apache-2.0](LICENSE). See [NOTICE](NOTICE).
+[Apache-2.0](https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/blob/main/LICENSE). See [NOTICE](https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/blob/main/NOTICE).
