@@ -343,6 +343,7 @@ async function analyzeDirectory(
         analyzed: results.length,
         truncated,
         notScanned,
+        ...(capped ? { notScannedAtLeast: true } : {}),
         maxFiles,
         detail,
         timedOut: notAnalyzed.length > 0,

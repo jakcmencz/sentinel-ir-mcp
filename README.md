@@ -1,5 +1,7 @@
 # Sentinel-IR-MCP
 
+[![M8ven Score](https://m8ven.ai/badge/mcp/jakcmencz/sentinel-ir-mcp?variant=verified)](https://m8ven.ai/mcp/jakcmencz/sentinel-ir-mcp)
+
 MCP server for [`sentinel-ir`](https://www.npmjs.com/package/sentinel-ir):
 it lets AI agents in Claude Desktop, Cursor, Windsurf or any other
 [Model Context Protocol](https://modelcontextprotocol.io) client read a
@@ -29,6 +31,11 @@ file) is `"incomplete"`, and a low risk on an incomplete result is not evidence
 of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
+
+**0.5.16** the agent guide (`guide`) and the instructions the server sends
+on connect now say it too: a `warning` means a partial answer, so call
+`analyze_directory` again on sub-folders. The audit log records `notScanned`,
+and `log` prints it next to "stopped at the file limit".
 
 **0.5.15** a partial `analyze_directory` answer no longer reads as a clean
 folder. When it stops at `max_files` it still counts the source files it left
@@ -317,7 +324,7 @@ Also uses `sentinel-ir` 0.4.5 (Python parse errors point where Python does).
 |---|---|---|
 | `analyze_code` | `code` (string), optional `target` (file name; its extension picks the language), optional `language` (`javascript`, `typescript`, `tsx`, `python`, `rust`, or `js`/`ts`/`py`/`rs` since 0.5.9) | compact IR of the given source |
 | `analyze_file` | `path` | compact IR of one file inside the allowed folders, plus `sha256` of the exact bytes analyzed (0.5.12) |
-| `analyze_directory` | optional `path`, `max_files` (default 50, max 500), `recursive` (default `true`), `detail` (`"summary"` default, or `"full"`) | one short entry per file (path, risk, status, language, lines, operations, up to 3 risk signals, `sha256` since 0.5.12; `"full"`: all facts), sorted from highest to lowest risk, plus `riskCounts`, `statusCounts` and `incomplete` (paths whose analysis did not finish; check them separately, their low risk is not evidence of safety); files that could not be read are listed in `skipped.unreadable` and are not counted as analyzed; excluded files and folders are only counted in `skipped.excluded`; `truncated`, `notScanned` (source files left out past `max_files`, since 0.5.15), `warning` (only on a partial answer) and `skipped` |
+| `analyze_directory` | optional `path`, `max_files` (default 50, max 500), `recursive` (default `true`), `detail` (`"summary"` default, or `"full"`) | one short entry per file (path, risk, status, language, lines, operations, up to 3 risk signals, `sha256` since 0.5.12; `"full"`: all facts), sorted from highest to lowest risk, plus `riskCounts`, `statusCounts` and `incomplete` (paths whose analysis did not finish; check them separately, their low risk is not evidence of safety); files that could not be read are listed in `skipped.unreadable` and are not counted as analyzed; excluded files and folders are only counted in `skipped.excluded`; `truncated`, `notScanned` (source files left out past `max_files`, since 0.5.15; `notScannedAtLeast: true` when counting stopped early and it is a lower bound, since 0.5.16), `warning` (only on a partial answer) and `skipped` |
 
 Every tool returns the result twice: as JSON text (for clients that only read
 text) and as `structuredContent`. All three are annotated

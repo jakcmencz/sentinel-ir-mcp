@@ -7,7 +7,11 @@ TypeScript, Python and Rust files: risk level, dangerous capabilities, routes, e
 env reads and network/filesystem/process/crypto calls. It reads files only.
 
 Recommended order:
-1. Call analyze_directory on the project (or a sub-folder) first.
+1. Call analyze_directory on the project (or a sub-folder) first. If the answer
+   has a "warning", it is partial: "riskCounts" and "files" cover only the
+   analyzed files, and "notScanned" source files past max_files were not looked
+   at. critical: 0 there does NOT mean a clean folder: call analyze_directory
+   again on sub-folders or with a larger max_files.
 2. Look at "incomplete", "skipped.unreadable" and "skipped.hardlinks" before
    anything else. Those files were not fully analyzed: a low risk there is NOT evidence of safety.
    Read their raw source if they matter. If "timedOut" is true, the files in
