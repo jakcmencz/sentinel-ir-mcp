@@ -112,7 +112,10 @@ test("doctor without a client checks configs it finds and the project folder; te
         assert.equal(r.code, 0, r.stdout);
         assert.match(r.stdout, /\[skip\] Windsurf: no config/);
         assert.match(r.stdout, /\[ok\] {3}Tools: analyze_code, analyze_directory, analyze_file/);
-        assert.match(r.stdout, /All checks passed/);
+        assert.match(r.stdout, /\[warn\] Not connected to an AI app yet/);
+        assert.match(r.stdout, /-> Run: npx -y sentinel-ir-mcp@stable-0\.5 setup\n/);
+        assert.match(r.stdout, /\nSentinel-IR works, but no AI app is connected yet: run setup \(see above\)\.\n$/);
+        assert.doesNotMatch(r.stdout, /All checks passed/);
         const missing = await run(sb, "doctor", ["--project", path.join(sb.base, "nope")]);
         assert.equal(missing.code, 1);
         assert.match(missing.stdout, /\[FAIL\] Project folder/);
@@ -358,11 +361,16 @@ test("doctor: current, offline, missing tag and no update check", async () => {
 test("doctor summary counts warnings", async () => {
     const sb = sandbox();
     try {
-        const r = await run(sb, "doctor", [], { io: { fetchDistTags: newerTags, packageDir: "/usr/lib/node_modules/sentinel-ir-mcp" } });
-        assert.equal(r.code, 0);
-        assert.match(r.stdout, /\nAll checks passed, \d+ warnings? above\.\n$/);
+        const r = await run(sb, "doctor", ["--client", "cursor"], { io: { fetchDistTags: newerTags, packageDir: "/usr/lib/node_modules/sentinel-ir-mcp" } });
+        assert.match(r.stdout, /\nSome checks failed, \d+ warnings? above\.\n$/);
+        assert.equal((await run(sb, "setup", ["--client", "cursor", "--yes"])).code, 0);
+        const warned = await run(sb, "doctor", [], { io: { fetchDistTags: newerTags, packageDir: "/usr/lib/node_modules/sentinel-ir-mcp" } });
+        assert.equal(warned.code, 0);
+        assert.match(warned.stdout, /\nAll checks passed, \d+ warnings? above\.\n$/);
         const ok = await run(sb, "doctor", []);
         assert.match(ok.stdout, /\nAll checks passed\.\n$/);
+        const none = await run(sb, "doctor", ["--project", sb.base], { io: { fetchDistTags: newerTags, packageDir: "/usr/lib/node_modules/sentinel-ir-mcp" } });
+        assert.match(none.stdout, /no AI app is connected yet: run setup \(see above\), \d+ more warnings? above\.\n$/);
     } finally { sb.cleanup(); }
 });
 
