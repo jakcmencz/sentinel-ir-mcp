@@ -56,32 +56,48 @@ function npxCopyDir(dir = PACKAGE_DIR) {
     return m ? m[1] : null;
 }
 
-// The prefix line of an npmrc file (npm's ${VAR} and ~/ expanded), or null.
-function npmrcPrefix(file, env, home) {
-    let text;
-    try { text = fs.readFileSync(file, "utf8"); } catch { return null; }
-    const m = /^[ \t]*prefix[ \t]*=[ \t]*(.*?)[ \t]*$/m.exec(text);
-    if (!m || !m[1]) return null;
-    // as npm's ini: a quoted value is literal, an unquoted one ends at an unescaped ; or #
-    const q = /^(["'])(.*)\1$/.exec(m[1]);
-    let v = (q ? q[2] : m[1].replace(/(^|[^\\])[;#].*$/, "$1").trim().replace(/\\([;#\\])/g, "$1")).replace(/\$\{([^}]+)\}/g, (_, k) => env[k] || "");
-    if (/^~[\\/]/.test(v) && home) v = path.join(home, v.slice(2));
-    return v;
+// The npm-cli.js that `npm` would run: the one npx started us with, the one bundled with node, else
+// the first npm on PATH (Debian's /usr/bin/npm, a standalone npm under another prefix).
+function npmCli(env, platform, execPath) {
+    const p = platform === "win32" ? path.win32 : path.posix;
+    const nodeDir = p.dirname(execPath);
+    const bundled = platform === "win32" ? p.join(nodeDir, "node_modules") : p.join(p.dirname(nodeDir), "lib", "node_modules");
+    const onPath = (env.PATH || env.Path || "").split(platform === "win32" ? ";" : ":").filter(Boolean).map((d) => {
+        if (platform === "win32") return p.join(d, "node_modules", "npm", "bin", "npm-cli.js");
+        try { return fs.realpathSync(p.join(d, "npm")); } catch { return null; }
+    });
+    return [env.npm_execpath, p.join(bundled, "npm", "bin", "npm-cli.js"), ...onPath]
+        .find((f) => f && /[\\/]npm-cli\.js$/.test(f) && fs.existsSync(f)) || null;
+}
+
+// npm's global prefix as npm itself resolves it, or null. npm answers in a child process,
+// so doctor never opens npm's config files: they may hold registry tokens. npm writes no log
+// and cleans no one's logs, and checks for no update.
+function npmGlobalPrefix(env, platform, execPath, timeoutMs = 5000) {
+    const p = platform === "win32" ? path.win32 : path.posix;
+    const cli = npmCli(env, platform, execPath);
+    if (!cli) return null;
+    // a path under a file: npm cannot create it, so it writes no log and lists (and cleans) no log folder
+    const logs = p.join(cli, "no-logs");
+    try {
+        const r = require("child_process").spawnSync(execPath, [cli, "prefix", "-g", "--logs-dir", logs, "--logs-max", "0", "--no-update-notifier"],
+            { env, encoding: "utf8", timeout: timeoutMs, windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
+        const out = r.status === 0 && typeof r.stdout === "string" ? r.stdout.trim() : "";
+        return out && !out.includes("\n") && p.isAbsolute(out) ? out : null;
+    } catch {
+        return null;
+    }
 }
 
 // Where npm installs a global sentinel-ir-mcp: the first entry is npm's prefix now; the rest are other
-// places a global install may sit (also %APPDATA%\\npm).
-function globalDirs(env, platform, execPath) {
+// places a global install may sit (also %APPDATA%\\npm). npx passes npm's prefix in the environment;
+// otherwise npm is asked (npmPrefix: its answer, if already known).
+function globalDirs(env, platform, execPath, npmPrefix) {
     const p = platform === "win32" ? path.win32 : path.posix;
     const nodePrefix = platform === "win32" ? p.dirname(execPath) : p.dirname(p.dirname(execPath));
-    const home = env.HOME || env.USERPROFILE;
     const cfg = (k) => env[`npm_config_${k}`] || env[`NPM_CONFIG_${k.toUpperCase()}`];
-    // npm's prefix: environment, then user, global and builtin npmrc (Homebrew sets it there), then the default
-    const builtinPrefix = npmrcPrefix(p.join(nodePrefix, ...(platform === "win32" ? [] : ["lib"]), "node_modules", "npm", "npmrc"), env, home);
-    const prefixes = [cfg("prefix"),
-        npmrcPrefix(cfg("userconfig") || (home ? p.join(home, ".npmrc") : ""), env, home),
-        npmrcPrefix(cfg("globalconfig") || p.join(builtinPrefix || nodePrefix, "etc", "npmrc"), env, home),
-        builtinPrefix,
+    const fromEnv = cfg("prefix") || cfg("global_prefix");
+    const prefixes = [fromEnv || (npmPrefix !== undefined ? npmPrefix : npmGlobalPrefix(env, platform, execPath)),
         nodePrefix,
         platform === "win32" && env.APPDATA ? p.join(env.APPDATA, "npm") : null];
     const dirs = prefixes.filter(Boolean).map((x) => p.join(x, ...(platform === "win32" ? [] : ["lib"]), "node_modules", "sentinel-ir-mcp"));
@@ -286,7 +302,7 @@ async function checkUpdate(io, add) {
         return;
     }
     const spec = `sentinel-ir-mcp@${tag}`;
-    const globals = globalDirs(io.env, io.platform, io.execPath || process.execPath).flatMap((g) => [g, realDir(g)]);
+    const globals = io.globalDirs().flatMap((g) => [g, realDir(g)]);
     const from = installKind(io.packageDir || PACKAGE_DIR, globals);
     const where = { npx: `the npx cache (${from.dir})`, global: `a global install (${from.dir})`, other: from.dir }[from.kind];
     const fix = {
@@ -349,7 +365,7 @@ function staleNpxCopies(cacheDir) {
 function checkGlobalInstall(io, add) {
     const running = io.packageDir || PACKAGE_DIR;
     // only npm's current prefix: bare npx starts the global install there, not one left under an old prefix
-    for (const dir of globalDirs(io.env, io.platform, io.execPath || process.execPath).slice(0, 1)) {
+    for (const dir of io.globalDirs().slice(0, 1)) {
         if (sameDir(dir, running) || sameDir(realDir(dir), realDir(running)) || !fs.existsSync(path.join(dir, "package.json"))) continue;
         const mcp = readVersion(path.join(dir, "package.json"));
         const ir = readVersion(path.join(dir, "node_modules", "sentinel-ir", "package.json"));
@@ -543,6 +559,8 @@ async function checkHandshake(folders, exclude, audit, add, timeoutMs) {
 const MARK = { ok: "[ok]  ", warn: "[warn]", fail: "[FAIL]", skip: "[skip]" };
 
 async function runDoctor(opts, io) {
+    let globals;
+    io = { ...io, globalDirs: () => globals || (globals = globalDirs(io.env, io.platform, io.execPath || process.execPath, io.npmPrefix)) };
     const checks = [];
     const add = (status, id, message, fix) => checks.push(fix ? { status, id, message, fix } : { status, id, message });
     const project = path.resolve(io.cwd, opts.project || ".");
@@ -625,4 +643,4 @@ async function runDoctor(opts, io) {
     return failed ? 1 : 0;
 }
 
-module.exports = { runDoctor, entryFolders, olderThan, staleNpxCopies, fetchDistTags, fetchDistTagsIsolated, proxyFor, installKind, globalDirs, IR_MIN };
+module.exports = { runDoctor, entryFolders, olderThan, staleNpxCopies, fetchDistTags, fetchDistTagsIsolated, proxyFor, installKind, globalDirs, npmGlobalPrefix, IR_MIN };

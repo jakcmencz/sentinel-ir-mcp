@@ -8,7 +8,7 @@ const path = require("path");
 const { runCommand } = require("../src/cli");
 const http = require("http");
 const https = require("https");
-const { entryFolders, fetchDistTags, fetchDistTagsIsolated, installKind, proxyFor, globalDirs, IR_MIN } = require("../src/doctor");
+const { entryFolders, fetchDistTags, fetchDistTagsIsolated, installKind, proxyFor, globalDirs, npmGlobalPrefix, IR_MIN } = require("../src/doctor");
 const { version } = require("../package.json");
 
 function sandbox() {
@@ -394,9 +394,8 @@ test("doctor finds an old global install that bare npx starts, also under a Wind
         put(path.join(prefix, "lib", "node_modules", "sentinel-ir-mcp"), version, IR_MIN);
         assert.deepEqual(byId((await doctorJson(sb, [], { env: { npm_config_prefix: prefix } })).report, "package.global"), [], "current global copy");
         assert.deepEqual(byId((await doctorJson(sb, [])).report, "package.global"), [], "no global copy");
-        fs.writeFileSync(path.join(sb.home, ".npmrc"), `prefix=${path.join(sb.base, "newprefix")}\n`);
         put(path.join(prefix, "lib", "node_modules", "sentinel-ir-mcp"), "0.3.0", "0.3.1");
-        assert.deepEqual(byId((await doctorJson(sb, [], { io: { execPath: path.join(prefix, "bin", "node") } })).report, "package.global"), [], "an old copy under a prefix npm no longer uses");
+        assert.deepEqual(byId((await doctorJson(sb, [], { io: { execPath: path.join(prefix, "bin", "node"), npmPrefix: path.join(sb.base, "newprefix") } })).report, "package.global"), [], "an old copy under a prefix npm no longer uses");
         assert.equal(byId((await doctorJson(sb, [], { env: { npm_config_prefix: prefix } })).report, "package.global").length, 1);
         const nvm = "C:\\nvm4w\\nodejs";
         assert.equal(installKind(`${nvm}\\node_modules\\sentinel-ir-mcp`, globalDirs({}, "win32", `${nvm}\\node.exe`)).kind, "global");
@@ -412,28 +411,56 @@ test("doctor finds an old global install that bare npx starts, also under a Wind
     } finally { sb.cleanup(); }
 });
 
-test("globalDirs reads npm's prefix from the user, global and builtin npmrc (Homebrew)", { skip: process.platform === "win32" && "posix npm layout" }, () => {
+test("globalDirs: npm's prefix from the environment npx sets, else from npm itself, then the node prefix", () => {
+    const g = (x) => path.posix.join(x, "lib", "node_modules", "sentinel-ir-mcp");
+    const node = "/opt/node/bin/node";
+    assert.deepEqual(globalDirs({}, "linux", node, "/npm"), [g("/npm"), g("/opt/node")], "npm's answer first");
+    assert.deepEqual(globalDirs({}, "linux", node, null), [g("/opt/node")], "npm gave no answer");
+    assert.deepEqual(globalDirs({}, "linux", node), [g("/opt/node")], "no npm next to this node");
+    assert.equal(globalDirs({ npm_config_prefix: "/env" }, "linux", node, "/npm")[0], g("/env"), "environment first");
+    assert.equal(globalDirs({ NPM_CONFIG_PREFIX: "/env" }, "linux", node, "/npm")[0], g("/env"), "uppercase environment");
+    assert.equal(globalDirs({ npm_config_global_prefix: "/npx" }, "linux", node, "/npm")[0], g("/npx"), "global_prefix from npx");
+});
+
+test("npmGlobalPrefix asks the real npm, which reads its own config (doctor opens no npm config file)", () => {
     const sb = sandbox();
     try {
-        const cellar = path.join(sb.base, "Cellar", "node", "24");
-        fs.mkdirSync(path.join(cellar, "lib", "node_modules", "npm"), { recursive: true });
-        fs.writeFileSync(path.join(cellar, "lib", "node_modules", "npm", "npmrc"), `prefix = "${path.join(sb.base, "brew")}"\n`);
-        const node = path.join(cellar, "bin", "node");
-        const g = (x) => path.join(x, "lib", "node_modules", "sentinel-ir-mcp");
-        assert.deepEqual(globalDirs({ HOME: sb.home }, "linux", node), [g(path.join(sb.base, "brew")), g(cellar)], "builtin npmrc");
-        fs.writeFileSync(path.join(sb.home, ".npmrc"), "registry=https://r/\nprefix=~/.npm-global\n");
-        assert.equal(globalDirs({ HOME: sb.home }, "linux", node)[0], g(path.join(sb.home, ".npm-global")), "~/.npmrc");
-        fs.writeFileSync(path.join(sb.home, ".npmrc"), "prefix=/c/d ; set by setup # really\n");
-        assert.equal(globalDirs({ HOME: sb.home }, "linux", node)[0], g("/c/d"), "inline comment");
-        fs.writeFileSync(path.join(sb.home, ".npmrc"), "prefix=/c\\#1\n");
-        assert.equal(globalDirs({ HOME: sb.home }, "linux", node)[0], g("/c#1"), "escaped #");
-        fs.writeFileSync(path.join(sb.home, ".npmrc"), "prefix=${PFX}/x\n");
-        assert.equal(globalDirs({ HOME: sb.home, PFX: "/opt" }, "linux", node)[0], g("/opt/x"), "${VAR}");
-        assert.equal(globalDirs({ HOME: sb.home, npm_config_prefix: "/env" }, "linux", node)[0], g("/env"), "environment first");
-        assert.equal(globalDirs({ HOME: sb.home, NPM_CONFIG_PREFIX: "/env" }, "linux", node)[0], g("/env"), "uppercase environment");
-        fs.mkdirSync(path.join(sb.base, "brew", "etc"), { recursive: true });
-        fs.writeFileSync(path.join(sb.base, "brew", "etc", "npmrc"), "prefix=/glob\n");
-        assert.ok(globalDirs({}, "linux", node).includes(g("/glob")), "global npmrc under the builtin prefix");
+        const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^npm_config_/i.test(k)));
+        const user = path.join(sb.base, "user-config");
+        const want = path.join(sb.base, "pfx");
+        fs.writeFileSync(user, `prefix=${want.replace(/\\/g, "/")}\n`);
+        const got = npmGlobalPrefix({ ...env, NPM_CONFIG_USERCONFIG: user }, process.platform, process.execPath);
+        assert.equal(got && path.resolve(got), path.resolve(want));
+        assert.equal(npmGlobalPrefix({}, process.platform, path.join(sb.base, "bin", "node")), null, "no npm next to node");
+        assert.equal(npmGlobalPrefix({ npm_execpath: path.join(sb.base, "evil.js") }, process.platform, path.join(sb.base, "bin", "node")), null, "only an npm-cli.js runs");
+    } finally { sb.cleanup(); }
+});
+
+test("npmGlobalPrefix finds npm on PATH, writes no npm log and checks for no update", () => {
+    const sb = sandbox();
+    try {
+        const win = process.platform === "win32";
+        const npmDir = win ? path.join(sb.base, "npmbin") : path.join(sb.base, "share", "npm");
+        const cli = win ? path.join(npmDir, "node_modules", "npm", "bin", "npm-cli.js") : path.join(npmDir, "bin", "npm-cli.js");
+        const seen = path.join(sb.base, "argv.json");
+        fs.mkdirSync(path.dirname(cli), { recursive: true });
+        fs.writeFileSync(cli, `require("fs").writeFileSync(${JSON.stringify(seen)}, JSON.stringify(process.argv.slice(2))); console.log(${JSON.stringify(path.join(sb.base, "standalone"))});\n`);
+        if (!win) {
+            fs.mkdirSync(path.join(sb.base, "usrbin"));
+            fs.symlinkSync(cli, path.join(sb.base, "usrbin", "npm"));
+        }
+        const bin = win ? npmDir : path.join(sb.base, "usrbin");
+        const node = path.join(sb.base, "node", win ? "node.exe" : path.join("bin", "node"));
+        fs.mkdirSync(path.dirname(node), { recursive: true });
+        fs.copyFileSync(process.execPath, node);
+        assert.equal(npmGlobalPrefix({ PATH: [path.join(sb.base, "empty"), bin].join(path.delimiter) }, process.platform, node), path.join(sb.base, "standalone"));
+        const argv = JSON.parse(fs.readFileSync(seen, "utf8"));
+        assert.deepEqual(argv.slice(0, 2), ["prefix", "-g"]);
+        assert.equal(argv[argv.indexOf("--logs-max") + 1], "0");
+        assert.ok(argv.includes("--no-update-notifier"));
+        const logs = argv[argv.indexOf("--logs-dir") + 1];
+        assert.equal(path.dirname(logs), cli, "logs-dir under a file: nothing to create, list or clean");
+        assert.ok(!fs.existsSync(logs));
     } finally { sb.cleanup(); }
 });
 
