@@ -47,7 +47,8 @@ const INSTRUCTIONS =
     "or risk, then read the raw source of the files that matter. Supported: JavaScript (.js, .mjs, .cjs, .jsx), TypeScript (.ts, .mts, .cts, .tsx), Python (.py, .pyi) and Rust (.rs); the language is picked from the file extension. " +
     "Rely on analysisStatus, world.risk, forbidden and facts; analysisStatus \"incomplete\" means the file did not parse cleanly. " +
     "analyze_directory lists such files separately in 'incomplete'; their low risk is not evidence of safety. " +
-    "Suggested order: analyze_directory first, check 'incomplete', 'skipped.unreadable' and 'notAnalyzed' (set when the time budget ran out), pick the relevant files, " +
+    "Suggested order: analyze_directory first; if it has a 'warning' (truncated with 'notScanned' files past max_files, or timedOut), " +
+    "its riskCounts cover only the analyzed files and critical: 0 is not a clean folder, so call it again on sub-folders. Then check 'incomplete', 'skipped.unreadable' and 'notAnalyzed' (set when the time budget ran out), pick the relevant files, " +
     "then analyze_file, and read raw source only where needed. " +
     "Risk says which capabilities a file uses, not that it has a vulnerability; medium (file writes, network, crypto) is normal " +
     "in backend code. Start with critical files and report a problem only after reading the code. " +

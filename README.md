@@ -1,5 +1,7 @@
 # Sentinel-IR-MCP
 
+[![M8ven Score](https://m8ven.ai/badge/mcp/jakcmencz/sentinel-ir-mcp?variant=verified)](https://m8ven.ai/mcp/jakcmencz/sentinel-ir-mcp)
+
 MCP server for [`sentinel-ir`](https://www.npmjs.com/package/sentinel-ir):
 it lets AI agents in Claude Desktop, Cursor, Windsurf or any other
 [Model Context Protocol](https://modelcontextprotocol.io) client read a
@@ -29,6 +31,11 @@ file) is `"incomplete"`, and a low risk on an incomplete result is not evidence
 of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
+
+**0.5.16** the agent guide (`guide`) and the instructions the server sends
+on connect now say it too: a `warning` means a partial answer, so call
+`analyze_directory` again on sub-folders. The audit log records `notScanned`,
+and `log` prints it next to "stopped at the file limit".
 
 **0.5.15** a partial `analyze_directory` answer no longer reads as a clean
 folder. When it stops at `max_files` it still counts the source files it left

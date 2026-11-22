@@ -626,3 +626,14 @@ test("log shows a tool or reason named like an Object method as text", () => {
     assert.deepEqual(describe({ tool: "constructor", path: "x", ok: true, risk: "low" }), ["constructor x: low"]);
     assert.deepEqual(describe({ tool: "analyze_file", path: "x", ok: false, reason: "toString" }), ["REFUSED file x: toString"]);
 });
+
+test("a truncated folder call logs notScanned and the log view shows it", () => {
+    const { describe } = require("../src/logView");
+    const result = { analyzed: 50, riskCounts: { critical: 0, high: 0, medium: 0, low: 50 }, incomplete: [], truncated: true, notScanned: 5,
+        skipped: { excluded: 0, tooLarge: [], unreadable: [], hardlinks: [], symlinks: 0 }, files: [] };
+    const e = describeCall("analyze_directory", { path: "." }, { result });
+    assert.equal(e.truncated, true);
+    assert.equal(e.notScanned, 5);
+    assert.match(describe(e)[0], /stopped at the file limit, 5 source file\(s\) not scanned/);
+    assert.match(describe({ ...e, notScanned: undefined })[0], /stopped at the file limit$/);
+});

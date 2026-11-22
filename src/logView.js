@@ -71,7 +71,10 @@ function describe(e) {
         const big = Number(e.notRead) - links;
         if (big > 0) extra.push(`${big} not read (too large or unreadable)`);
         if (links > 0) extra.push(`${links} not read (several hard links)`);
-        if (e.truncated) extra.push("stopped at the file limit");
+        if (e.truncated) {
+            const n = Number(e.notScanned);
+            extra.push(`stopped at the file limit${n > 0 ? `, ${n} source file(s) not scanned` : ""}`);
+        }
         if (e.timedOut) extra.push("stopped at the time limit");
         if (Number(e.hashed) > 0) extra.push(`sha256 of ${Number(e.hashed)} file(s) in log --json`);
         const lines = [`${target}: ${Number(e.analyzed) || 0} file(s)${riskCounts(e.riskCounts)}${extra.length ? `, ${extra.join(", ")}` : ""}`];
