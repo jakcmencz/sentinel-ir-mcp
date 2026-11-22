@@ -176,3 +176,16 @@ test("after max_files the walk looks at a bounded number of entries and says the
         fs.rmSync(big, { recursive: true, force: true });
     }
 });
+
+test("counting the files past max_files waits for the analysis and stops at the time budget", async () => {
+    const big = fs.mkdtempSync(path.join(os.tmpdir(), "sir-late-"));
+    try {
+        for (const n of ["a.js", "b.js", "c.js"]) fs.writeFileSync(path.join(big, n), "export const x = 1;\n");
+        const part = await analyzeDirectory(".", [big], { ...LIMITS, maxFiles: 1, timeBudgetMs: 0 });
+        assert.equal(part.truncated, true);
+        assert.equal(part.notScanned, 1);
+        assert.match(part.warning, /at least 1 more source file\(s\) past max_files 1/);
+    } finally {
+        fs.rmSync(big, { recursive: true, force: true });
+    }
+});
