@@ -183,12 +183,13 @@ function createServer(options = {}) {
             "Scan a folder inside the allowed folders: one short entry per JavaScript, TypeScript, Python or Rust file, " +
             "highest risk first, plus riskCounts and statusCounts.\n" +
             "Parameters: path defaults to the first allowed folder (relative paths resolve against it); recursive defaults to true, false scans only the top level; " +
-            `max_files defaults to ${limits.maxFiles}, more files set truncated; ` +
+            `max_files defaults to ${limits.maxFiles}, more files set truncated and notScanned (how many were left out); ` +
             "detail \"summary\" (default) or \"full\" (adds forbidden, objective and all facts per file, much larger).\n" +
             "Summary entry: {path, risk, analysisStatus, language, lines, operations, riskSignals " +
             "(up to 3 'kind:code@line' signals that set the risk, code cut to 120 characters), moreRiskSignals?, parseError?, " +
             "sha256 (of the exact bytes analyzed; check it before running or relying on the file)}.\n" +
             RISK_NOTE + "\n" +
+            "A partial scan (truncated or timedOut) has a warning: its riskCounts cover only the analyzed files, so critical: 0 there is not a clean folder.\n" +
             "Files listed in incomplete did not finish analysis (e.g. parse errors): their risk is not reliable, check them separately.\n" +
             "Skips node_modules, .git, __pycache__, venv, site-packages, hidden folders, symlinks and Cargo target/ (skipped.cargoTarget); " +
             "unreadable files and files with several hard links go to skipped.unreadable and skipped.hardlinks. " +

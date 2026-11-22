@@ -30,6 +30,13 @@ of safety. Other languages are not supported yet. What is detected in Python
 and Rust (and what is not) is listed in the
 [sentinel-ir README](https://gitlab.com/jakubrojicek11/sentinel-ir#python).
 
+**0.5.15** a partial `analyze_directory` answer no longer reads as a clean
+folder. When it stops at `max_files` it still counts the source files it left
+out (`notScanned`), and a truncated or timed-out answer starts with a
+`warning`: `riskCounts` cover only the analyzed files, so `critical: 0` there
+says nothing about the rest. Reported by an outside tester: 5 critical files
+at the end of the walk order were behind `critical: 0` at the default 50 files.
+
 **0.5.14** `doctor` no longer opens npm's config files (`~/.npmrc` and
 others may hold registry tokens). It takes npm's global prefix from the
 environment `npx` sets, or asks npm itself (`npm prefix -g`, no shell). The
@@ -310,7 +317,7 @@ Also uses `sentinel-ir` 0.4.5 (Python parse errors point where Python does).
 |---|---|---|
 | `analyze_code` | `code` (string), optional `target` (file name; its extension picks the language), optional `language` (`javascript`, `typescript`, `tsx`, `python`, `rust`, or `js`/`ts`/`py`/`rs` since 0.5.9) | compact IR of the given source |
 | `analyze_file` | `path` | compact IR of one file inside the allowed folders, plus `sha256` of the exact bytes analyzed (0.5.12) |
-| `analyze_directory` | optional `path`, `max_files` (default 50, max 500), `recursive` (default `true`), `detail` (`"summary"` default, or `"full"`) | one short entry per file (path, risk, status, language, lines, operations, up to 3 risk signals, `sha256` since 0.5.12; `"full"`: all facts), sorted from highest to lowest risk, plus `riskCounts`, `statusCounts` and `incomplete` (paths whose analysis did not finish; check them separately, their low risk is not evidence of safety); files that could not be read are listed in `skipped.unreadable` and are not counted as analyzed; excluded files and folders are only counted in `skipped.excluded`; `truncated` and `skipped` |
+| `analyze_directory` | optional `path`, `max_files` (default 50, max 500), `recursive` (default `true`), `detail` (`"summary"` default, or `"full"`) | one short entry per file (path, risk, status, language, lines, operations, up to 3 risk signals, `sha256` since 0.5.12; `"full"`: all facts), sorted from highest to lowest risk, plus `riskCounts`, `statusCounts` and `incomplete` (paths whose analysis did not finish; check them separately, their low risk is not evidence of safety); files that could not be read are listed in `skipped.unreadable` and are not counted as analyzed; excluded files and folders are only counted in `skipped.excluded`; `truncated`, `notScanned` (source files left out past `max_files`, since 0.5.15), `warning` (only on a partial answer) and `skipped` |
 
 Every tool returns the result twice: as JSON text (for clients that only read
 text) and as `structuredContent`. All three are annotated
@@ -626,8 +633,10 @@ sentinel-ir-mcp [--exclude <name>]... [--audit-log[=<folder>]] [--max-file-bytes
   project. Excluded paths are refused by `analyze_file` and counted, not
   named, in `skipped.excluded`.
 - **`analyze_directory`** skips `node_modules`, `.git`, hidden folders and
-  every symlink, and stops after `max_files` files (`truncated: true`) or
-  when the time budget is spent (`timedOut: true`, rest in `notAnalyzed`).
+  every symlink, and stops after `max_files` files (`truncated: true`, the
+  number left out in `notScanned`) or when the time budget is spent
+  (`timedOut: true`, rest in `notAnalyzed`). A partial answer carries a
+  `warning`: its `riskCounts` are not a result for the whole folder.
   Each file is checked again when it is opened: it must still be a regular
   file inside the allowed folders.
 - **Hard links are refused.** A hard link inside the folder can point to a

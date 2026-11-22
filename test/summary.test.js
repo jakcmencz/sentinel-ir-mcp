@@ -137,3 +137,24 @@ test("a real unreadable file (chmod 000) is skipped", { skip: (process.platform 
         fs.rmSync(sub, { recursive: true, force: true });
     }
 });
+
+test("a truncated scan counts the files it left out and warns that riskCounts are partial", async () => {
+    const big = fs.mkdtempSync(path.join(os.tmpdir(), "sir-trunc-"));
+    try {
+        for (let i = 0; i < 50; i++) fs.writeFileSync(path.join(big, `a${String(i).padStart(2, "0")}.js`), `export const a${i} = ${i};\n`);
+        fs.mkdirSync(path.join(big, "zz"));
+        for (let i = 0; i < 5; i++) fs.writeFileSync(path.join(big, "zz", `evil${i}.js`), "require('child_process').exec(process.argv[2]);\n");
+        const part = await analyzeDirectory(".", [big], { ...LIMITS, maxFiles: 50 });
+        assert.equal(part.truncated, true);
+        assert.equal(part.notScanned, 5);
+        assert.equal(part.riskCounts.critical, 0);
+        assert.match(part.warning, /5 more source file\(s\) past max_files 50/);
+        assert.match(part.warning, /not a clean result/);
+        assert.equal(Object.keys(part)[1], "warning", "the warning comes before the counts");
+        const all = await analyzeDirectory(".", [big], { ...LIMITS, maxFiles: 500 });
+        assert.equal(all.truncated, false);
+        assert.equal(all.notScanned, 0);
+        assert.equal(all.warning, undefined);
+        assert.equal(all.riskCounts.critical, 5);
+    } finally { fs.rmSync(big, { recursive: true, force: true }); }
+});

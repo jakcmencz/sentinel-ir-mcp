@@ -86,6 +86,7 @@ function realNative(p) {
     try { return realpathSync.native(p); } catch { return p; }
 }
 
+const NOT_SCANNED_CAP = 10000;
 const SKIP_DIRS = new Set(["node_modules", ".git", "__pycache__", "venv", "site-packages"]);
 // Cargo marks its build folder with a CACHEDIR.TAG (cache directory tagging
 // spec); a plain folder named "target" in a JS project is still scanned.
@@ -146,8 +147,10 @@ async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive, excl
     // short names (SRC~1) that the patterns do not know.
     const prefix = excluder.active ? path.relative(realNative(root), realNative(dir)) : "";
     let truncated = false;
+    // After max_files the walk only counts the source files it leaves out, up to NOT_SCANNED_CAP.
+    let notScanned = 0;
     const queue = [dir];
-    while (queue.length && !truncated) {
+    while (queue.length && notScanned < NOT_SCANNED_CAP) {
         const current = queue.shift();
         let entries;
         try {
@@ -171,6 +174,10 @@ async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive, excl
                 if (entry.name === "target" && await isCargoTarget(full)) skipped.cargoTarget.push(rel);
                 else queue.push(full);
             } else if (entry.isFile() && isSourceFile(entry.name)) {
+                if (truncated) {
+                    if (++notScanned >= NOT_SCANNED_CAP) break;
+                    continue;
+                }
                 let size;
                 try {
                     ({ size } = await fs.lstat(full));
@@ -182,14 +189,14 @@ async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive, excl
                     skipped.tooLarge.push(rel);
                 } else if (files.length >= maxFiles) {
                     truncated = true;
-                    break;
+                    notScanned++;
                 } else {
                     files.push({ full, rel });
                 }
             }
         }
     }
-    return { files, skipped, truncated };
+    return { files, skipped, truncated, notScanned };
 }
 
 // Signal kinds by the risk level they set (sentinel-ir riskOf). Kinds that do
@@ -259,7 +266,7 @@ async function analyzeDirectory(
     const stat = await fs.stat(real);
     if (!stat.isDirectory()) throw new AccessError(`Not a folder: ${requested}`);
 
-    const { files, skipped, truncated } = await collectFiles(real, root, { maxFiles, maxFileBytes, recursive, excluder });
+    const { files, skipped, truncated, notScanned } = await collectFiles(real, root, { maxFiles, maxFileBytes, recursive, excluder });
     const results = [];
     const notAnalyzed = [];
     for (const { full, rel } of files) {
@@ -298,10 +305,21 @@ async function analyzeDirectory(
     const incomplete = results.filter((r) => r.analysisStatus !== "complete").map((r) => r.path).sort();
     const statusCounts = { complete: results.length - incomplete.length, incomplete: incomplete.length };
 
+    // riskCounts of a partial scan must not read as a clean folder.
+    const left = [];
+    if (truncated) left.push(`${notScanned >= NOT_SCANNED_CAP ? "at least " : ""}${notScanned} more source file(s) past max_files ${maxFiles}`);
+    if (notAnalyzed.length) left.push(`${notAnalyzed.length} file(s) in notAnalyzed (time budget)`);
+    const warning = left.length
+        ? `Partial result: ${left.join(" and ")} were not analyzed. riskCounts and files cover only the ${results.length} analyzed file(s), ` +
+          "so this is not a clean result for the folder. Call again with a larger max_files or on subfolders."
+        : undefined;
+
     return {
         folder: display,
+        ...(warning ? { warning } : {}),
         analyzed: results.length,
         truncated,
+        notScanned,
         maxFiles,
         detail,
         timedOut: notAnalyzed.length > 0,
