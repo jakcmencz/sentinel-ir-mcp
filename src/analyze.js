@@ -147,10 +147,13 @@ async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive, excl
     // short names (SRC~1) that the patterns do not know.
     const prefix = excluder.active ? path.relative(realNative(root), realNative(dir)) : "";
     let truncated = false;
-    // After max_files the walk only counts the source files it leaves out, up to NOT_SCANNED_CAP.
+    // After max_files the walk only counts the source files it leaves out, looking at no more than
+    // NOT_SCANNED_CAP further entries, so the count costs little of the time budget.
     let notScanned = 0;
+    let looked = 0;
+    let capped = false;
     const queue = [dir];
-    while (queue.length && notScanned < NOT_SCANNED_CAP) {
+    while (queue.length && !capped) {
         const current = queue.shift();
         let entries;
         try {
@@ -163,6 +166,10 @@ async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive, excl
         entries = entries
             .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
         for (const entry of entries) {
+            if (truncated && ++looked > NOT_SCANNED_CAP) {
+                capped = true;
+                break;
+            }
             const full = path.join(current, entry.name);
             const rel = path.relative(root, full).split(path.sep).join("/");
             if (excluder.active && excluder.matches(path.join(prefix, path.relative(dir, full)))) {
@@ -175,7 +182,7 @@ async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive, excl
                 else queue.push(full);
             } else if (entry.isFile() && isSourceFile(entry.name)) {
                 if (truncated) {
-                    if (++notScanned >= NOT_SCANNED_CAP) break;
+                    notScanned++;
                     continue;
                 }
                 let size;
@@ -196,7 +203,7 @@ async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive, excl
             }
         }
     }
-    return { files, skipped, truncated, notScanned };
+    return { files, skipped, truncated, notScanned, capped };
 }
 
 // Signal kinds by the risk level they set (sentinel-ir riskOf). Kinds that do
@@ -266,7 +273,7 @@ async function analyzeDirectory(
     const stat = await fs.stat(real);
     if (!stat.isDirectory()) throw new AccessError(`Not a folder: ${requested}`);
 
-    const { files, skipped, truncated, notScanned } = await collectFiles(real, root, { maxFiles, maxFileBytes, recursive, excluder });
+    const { files, skipped, truncated, notScanned, capped } = await collectFiles(real, root, { maxFiles, maxFileBytes, recursive, excluder });
     const results = [];
     const notAnalyzed = [];
     for (const { full, rel } of files) {
@@ -307,7 +314,7 @@ async function analyzeDirectory(
 
     // riskCounts of a partial scan must not read as a clean folder.
     const left = [];
-    if (truncated) left.push(`${notScanned >= NOT_SCANNED_CAP ? "at least " : ""}${notScanned} more source file(s) past max_files ${maxFiles}`);
+    if (truncated) left.push(`${capped ? "at least " : ""}${notScanned} more source file(s) past max_files ${maxFiles}`);
     if (notAnalyzed.length) left.push(`${notAnalyzed.length} file(s) in notAnalyzed (time budget)`);
     const warning = left.length
         ? `Partial result: ${left.join(" and ")} were not analyzed. riskCounts and files cover only the ${results.length} analyzed file(s), ` +

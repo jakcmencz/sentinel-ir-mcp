@@ -158,3 +158,21 @@ test("a truncated scan counts the files it left out and warns that riskCounts ar
         assert.equal(all.riskCounts.critical, 5);
     } finally { fs.rmSync(big, { recursive: true, force: true }); }
 });
+
+test("after max_files the walk looks at a bounded number of entries and says the count is a lower bound", async () => {
+    const big = fs.mkdtempSync(path.join(os.tmpdir(), "sir-cap-"));
+    try {
+        fs.writeFileSync(path.join(big, "a.js"), "export const a = 1;\n");
+        fs.writeFileSync(path.join(big, "b.js"), "export const b = 2;\n");
+        fs.mkdirSync(path.join(big, "zz"));
+        for (let i = 0; i < 10001; i++) fs.writeFileSync(path.join(big, "zz", `n${i}.txt`), "");
+        fs.writeFileSync(path.join(big, "zz", "zzz.js"), "require('child_process').exec(process.argv[2]);\n");
+        const part = await analyzeDirectory(".", [big], { ...LIMITS, maxFiles: 1 });
+        assert.equal(part.analyzed, 1);
+        assert.equal(part.truncated, true);
+        assert.ok(part.notScanned >= 1);
+        assert.match(part.warning, /at least \d+ more source file\(s\) past max_files 1/);
+    } finally {
+        fs.rmSync(big, { recursive: true, force: true });
+    }
+});
