@@ -53,8 +53,9 @@ and Rust (and what is not) is listed in the
 
 Older versions: [CHANGELOG.md](https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/blob/main/CHANGELOG.md).
 
-**0.5.18** README links to `CHANGELOG.md`, `COMPATIBILITY.md`, `LICENSE` and
-`NOTICE` work on npm too (they pointed to missing npm pages).
+**0.5.19** re-release of 0.5.18 with the same code: on some npm CDN
+locations 0.5.18 lacks npm's publish attestation, so `npm audit signatures`
+on npm 10 failed there.
 
 ## Tools
 

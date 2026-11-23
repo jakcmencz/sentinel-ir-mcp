@@ -3,6 +3,10 @@
 Release notes of `sentinel-ir-mcp`, newest first. Each version is on npm:
 `https://www.npmjs.com/package/sentinel-ir-mcp/v/<version>`.
 
+**0.5.19** re-release of 0.5.18 with the same code: on some npm CDN
+locations 0.5.18 lacks npm's publish attestation, so `npm audit signatures`
+on npm 10 failed there.
+
 **0.5.18** README links to `CHANGELOG.md`, `COMPATIBILITY.md`, `LICENSE` and
 `NOTICE` work on npm too (they pointed to missing npm pages).
 
