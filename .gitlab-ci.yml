@@ -41,6 +41,8 @@ publish:
     # Publish once; a retried job only moves the tag. `setup` writes the
     # stable-<major>.<minor> tag, which npx resolves again on every start.
     - V="${CI_COMMIT_TAG#v}"
+    # The npm copy of the README tags its Agensi link as coming from npm.
+    - sed -i 's/utm_source=sentinel-ir-mcp-readme/utm_source=npm/g' README.md
     - if [ -z "$(npm view "sentinel-ir-mcp@$V" version 2>/dev/null)" ]; then npm publish --provenance --access public; fi
     # Never move the tag back: a retried older release leaves a newer patch on it.
     - TAG="$(node -p 'require("./src/clients").STABLE_TAG')"

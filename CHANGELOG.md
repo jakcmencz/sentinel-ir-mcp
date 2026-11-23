@@ -3,6 +3,11 @@
 Release notes of `sentinel-ir-mcp`, newest first. Each version is on npm:
 `https://www.npmjs.com/package/sentinel-ir-mcp/v/<version>`.
 
+**0.5.20** documentation only, same code as 0.5.19: `SECURITY.md` says how
+to check a release yourself, the README has the MCP Registry badge and a link
+to the Agensi pre-run vetting skill, and CI checks npm signatures 15 minutes
+after publishing.
+
 **0.5.19** re-release of 0.5.18 with the same code: on some npm CDN
 locations 0.5.18 lacks npm's publish attestation, so `npm audit signatures`
 on npm 10 failed there.

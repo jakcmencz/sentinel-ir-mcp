@@ -16,6 +16,7 @@ compact **structural IR** of JavaScript, TypeScript, Python and Rust files inste
 - GitHub (mirror): <https://github.com/jakcmencz/sentinel-ir-mcp>
 - Library behind it: [`sentinel-ir`](https://github.com/jakcmencz/sentinel-ir)
 - See what the agent sees, in your browser: <https://sentinel-ir-playground-dc30c8.gitlab.io/>
+- Ready-made agent workflow (paid skill on Agensi; the server stays free and open source): [Sentinel-IR: Vet Code Before Your Agent Runs It](https://agensi.io/r/JACKYMENCZJAKCME?to=/skills/sentinel-ir-vet-code-before-your-agent-runs-it&utm_source=sentinel-ir-mcp-readme) checks an npm, PyPI or crates package or a repo before your agent installs or runs it
 
 ## Quick start
 
@@ -55,9 +56,10 @@ and Rust (and what is not) is listed in the
 
 Older versions: [CHANGELOG.md](https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/blob/main/CHANGELOG.md).
 
-**0.5.19** re-release of 0.5.18 with the same code: on some npm CDN
-locations 0.5.18 lacks npm's publish attestation, so `npm audit signatures`
-on npm 10 failed there.
+**0.5.20** documentation only, same code as 0.5.19: `SECURITY.md` says how
+to check a release yourself, the README has the MCP Registry badge and a link
+to the Agensi pre-run vetting skill, and CI checks npm signatures 15 minutes
+after publishing.
 
 ## Tools
 
