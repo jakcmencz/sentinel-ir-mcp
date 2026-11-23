@@ -1,6 +1,7 @@
 # Sentinel-IR-MCP
 
 [![Glama](https://glama.ai/mcp/servers/jakcmencz/sentinel-ir-mcp/badges/score.svg)](https://glama.ai/mcp/servers/jakcmencz/sentinel-ir-mcp)
+[![MCP Registry](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fregistry.modelcontextprotocol.io%2Fv0%2Fservers%2Fio.github.jakcmencz%252Fsentinel-ir-mcp%2Fversions%2Flatest&query=%24.server.version&label=MCP%20Registry&prefix=v&color=blue)](https://registry.modelcontextprotocol.io/?q=sentinel-ir-mcp)
 [![M8ven Score](https://m8ven.ai/badge/mcp/jakcmencz/sentinel-ir-mcp?variant=verified)](https://m8ven.ai/mcp/jakcmencz/sentinel-ir-mcp)
 [![ProtocolProbe](https://protocolprobe.com/api/v1/badge/io.github.jakcmencz/sentinel-ir-mcp)](https://protocolprobe.com/mcp/servers/io.github.jakcmencz/sentinel-ir-mcp)
 
@@ -10,6 +11,7 @@ it lets AI agents in Claude Desktop, Cursor, Windsurf or any other
 compact **structural IR** of JavaScript, TypeScript, Python and Rust files instead of the raw source.
 
 - npm: <https://www.npmjs.com/package/sentinel-ir-mcp>
+- Official MCP Registry: [`io.github.jakcmencz/sentinel-ir-mcp`](https://registry.modelcontextprotocol.io/?q=sentinel-ir-mcp)
 - GitLab (main repository): <https://gitlab.com/jakubrojicek11/sentinel-ir-mcp>
 - GitHub (mirror): <https://github.com/jakcmencz/sentinel-ir-mcp>
 - Library behind it: [`sentinel-ir`](https://github.com/jakcmencz/sentinel-ir)
