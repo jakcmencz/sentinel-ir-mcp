@@ -56,10 +56,10 @@ and Rust (and what is not) is listed in the
 
 Older versions: [CHANGELOG.md](https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/blob/main/CHANGELOG.md).
 
-**0.5.20** documentation only, same code as 0.5.19: `SECURITY.md` says how
-to check a release yourself, the README has the MCP Registry badge and a link
-to the Agensi pre-run vetting skill, and CI checks npm signatures 15 minutes
-after publishing.
+**0.5.21** the audit log line of a tool call is written before the agent
+gets the answer, so a client that kills the server right after (Windows ends
+it at once) no longer loses the last lines. `SECURITY.md` is now in the npm
+package.
 
 ## Tools
 
@@ -311,6 +311,7 @@ server through `cmd`). Then read it with `log --dir <folder>`.
   paths of a folder) or why it was refused (`excluded`, `outside`,
   `not-found`, `too-large`, `hardlink`, `symlink`, `unsupported`,
   `not-a-file`, `not-a-folder`, `url`, `no-folders`), and the duration. A line when the server starts.
+  Since 0.5.21 the line is on disk before the agent gets the answer.
 - **Which version of a file (0.4.5):** for every file the server read, the
   SHA-256 of the exact bytes it analyzed: `sha256` for `analyze_file`; for
   `analyze_directory` the folder line gets a `call` id and `hashed` count,

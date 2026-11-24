@@ -3,6 +3,11 @@
 Release notes of `sentinel-ir-mcp`, newest first. Each version is on npm:
 `https://www.npmjs.com/package/sentinel-ir-mcp/v/<version>`.
 
+**0.5.21** the audit log line of a tool call is written before the agent
+gets the answer, so a client that kills the server right after (Windows ends
+it at once) no longer loses the last lines. `SECURITY.md` is now in the npm
+package.
+
 **0.5.20** documentation only, same code as 0.5.19: `SECURITY.md` says how
 to check a release yourself, the README has the MCP Registry badge and a link
 to the Agensi pre-run vetting skill, and CI checks npm signatures 15 minutes

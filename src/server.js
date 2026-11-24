@@ -86,11 +86,13 @@ async function guarded(fn, audit) {
     const started = Date.now();
     try {
         const result = await fn();
-        audit({ result }, Date.now() - started);
+        // The line is on disk before the agent gets the answer, so a client
+        // that kills the server right after cannot lose answered calls.
+        await audit({ result }, Date.now() - started);
         return ok(result);
     } catch (err) {
         const message = err instanceof AccessError ? err.message : `Analysis failed: ${err && err.message ? err.message : String(err)}`;
-        audit({ error: message, reason: refusalReason(err) }, Date.now() - started);
+        await audit({ error: message, reason: refusalReason(err) }, Date.now() - started);
         return fail(message);
     }
 }
@@ -114,14 +116,14 @@ function createServer(options = {}) {
     if (auditLog.active) auditLog.record({ event: "start", version, folders: fixedRoots, exclusions: excluder.patterns.length });
 
     function auditor(tool, args) {
-        if (!auditLog.active) return () => {};
-        return (outcome, ms) => {
+        if (!auditLog.active) return async () => {};
+        return async (outcome, ms) => {
             try {
                 const info = server.server.getClientVersion();
                 const client = info && typeof info.name === "string" ? info.name.slice(0, 100) : undefined;
                 const [main, ...hashLines] = splitHashes({ client, ...describeCall(tool, args, outcome), ms });
-                auditLog.record(main);
-                for (const line of hashLines) auditLog.record(line);
+                const written = [main, ...hashLines].map((line) => auditLog.record(line));
+                await Promise.all(written);
             } catch { /* logging must never break a tool call */ }
         };
     }
