@@ -11,11 +11,12 @@ const { createServer, DEFAULT_LIMITS } = require("../src/server");
 const { normalizePattern, ExcludeError, MAX_PATTERNS } = require("../src/exclude");
 const { AuditLogError, defaultAuditDir, normalizeAuditDir, assertOutsideProjects } = require("../src/auditLog");
 const { version } = require("../package.json");
+const { PACKAGE_SPEC } = require("../src/clients");
 
 const USAGE = `sentinel-ir-mcp ${version} — MCP server for sentinel-ir (JavaScript, TypeScript, Python and Rust)
 
-Usage: sentinel-ir-mcp [options] [folder ...]
-       sentinel-ir-mcp setup | doctor | guide | log [--help]
+Usage: npx -y ${PACKAGE_SPEC} [options] [folder ...]
+       npx -y ${PACKAGE_SPEC} setup | doctor | guide | log [--help]
 
   setup                  Connect Sentinel-IR to an AI client (shows the change first)
   doctor                 Check Node.js, the client config and a real MCP connection
@@ -42,7 +43,7 @@ Usage: sentinel-ir-mcp [options] [folder ...]
 
 The server only reads files. It never executes code or uses the network, and it
 writes nothing except the audit log when you turn it on. "setup" writes only the
-client config file you confirm. See the log with: sentinel-ir-mcp log`;
+client config file you confirm. See the log with: npx -y ${PACKAGE_SPEC} log`;
 
 function die(message) {
     process.stderr.write(`sentinel-ir-mcp: ${message}\n\n${USAGE}\n`);

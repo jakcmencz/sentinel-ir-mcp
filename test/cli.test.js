@@ -12,7 +12,7 @@ test("--version and --help", () => {
     assert.equal(run("--version").stdout.trim(), pkg.version);
     const help = run("--help");
     assert.equal(help.status, 0);
-    assert.match(help.stdout, /Usage: sentinel-ir-mcp/);
+    assert.match(help.stdout, /Usage: npx -y sentinel-ir-mcp@stable-0\.5 \[options\]/);
 });
 
 test("server.json for the MCP Registry matches package.json", () => {
@@ -61,7 +61,7 @@ test("subcommands: --help, unknown options exit 2; help lists the commands", () 
     for (const cmd of ["setup", "doctor", "guide"]) {
         const help = run(cmd, "--help");
         assert.equal(help.status, 0);
-        assert.match(help.stdout, new RegExp(`Usage: sentinel-ir-mcp ${cmd}`));
+        assert.match(help.stdout, new RegExp(`Usage: npx -y sentinel-ir-mcp@stable-0\\.5 ${cmd}`));
         const bad = run(cmd, "--nope");
         assert.equal(bad.status, 2, cmd);
         assert.match(bad.stderr, /unknown option --nope/);

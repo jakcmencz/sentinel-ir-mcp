@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { fileURLToPath } = require("url");
+const { PACKAGE_SPEC } = require("./clients");
 
 const JS_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".jsx"]);
 const TS_EXTENSIONS = new Set([".ts", ".mts", ".cts", ".tsx"]);
@@ -49,12 +50,18 @@ function plainPath(requested, platform = process.platform) {
 
 // The real path of the nearest existing ancestor plus the missing rest, so a
 // path that does not exist is judged by where it would be.
+// macOS file systems are usually case-insensitive and the JS realpath keeps the
+// letter case it was given, so /Users/a/Proj and /users/a/proj would not match;
+// the native one returns the case stored on disk. Elsewhere the JS one stays:
+// on Windows the native one expands 8.3 short names differently.
+const realpath = (p) => (process.platform === "darwin" ? fs.realpathSync.native(p) : fs.realpathSync(p));
+
 function realOrNearest(absolute) {
     const rest = [];
     let dir = absolute;
     for (;;) {
         try {
-            return path.join(fs.realpathSync(dir), ...[...rest].reverse());
+            return path.join(realpath(dir), ...[...rest].reverse());
         } catch {
             const parent = path.dirname(dir);
             if (parent === dir) return absolute;
@@ -79,7 +86,7 @@ function canonicalRoots(dirs) {
     const out = [];
     for (const dir of dirs) {
         try {
-            const real = plainPath(fs.realpathSync(path.resolve(plainPath(dir))));
+            const real = plainPath(realpath(path.resolve(plainPath(dir))));
             if (fs.statSync(real).isDirectory() && !out.includes(real)) out.push(real);
         } catch {
             // ignore missing roots
@@ -101,34 +108,70 @@ function rootsFromUris(roots) {
     return canonicalRoots(dirs);
 }
 
-// Resolves a caller-supplied path against the allowed roots. Relative paths
-// are taken relative to the first root. The real path (symlinks followed)
-// must stay inside one of the roots.
+// The folder a relative path is taken from: the first allowed folder in which
+// it exists with its real path inside the allowed folders, else the first one.
+// A candidate outside (../x, a symlink out) is skipped whether it exists or
+// not, so the answer does not tell the agent what exists outside.
+function baseRoot(requested, roots) {
+    if (roots.length > 1 && !path.isAbsolute(requested)) {
+        for (const r of roots) {
+            let real;
+            try { real = realpath(path.resolve(r, requested)); } catch { continue; }
+            if (roots.some((root) => isInside(real, root))) return r;
+        }
+    }
+    return roots[0];
+}
+
+// Whether the symlink at absolute loops while every link on the way stays
+// inside the allowed folders; a chain that leaves them is not followed.
+function loopsInside(absolute, roots) {
+    const seen = new Set();
+    let p = absolute;
+    for (let hops = 0; hops < 64; hops++) {
+        const at = path.join(realOrNearest(path.dirname(p)), path.basename(p));
+        if (!roots.some((r) => isInside(at, r))) return false;
+        if (seen.has(at)) return true;
+        seen.add(at);
+        let target;
+        try { target = fs.readlinkSync(at); } catch { return false; }
+        p = path.resolve(path.dirname(at), target);
+    }
+    return false;
+}
+
+// Resolves a caller-supplied path against the allowed roots (relative paths:
+// see baseRoot). The real path (symlinks followed) must stay inside one of the roots.
 function resolveInside(requested, roots) {
     if (!roots.length) {
         throw new AccessError(
             "No allowed folders are configured. Start the server with one or more folder " +
-            "arguments, e.g. `npx -y sentinel-ir-mcp /path/to/project`, or use a client " +
+            `arguments, e.g. \`npx -y ${PACKAGE_SPEC} /path/to/project\`, or use a client ` +
             "that provides MCP roots."
         );
     }
     if (typeof requested !== "string" || requested.trim() === "" || requested.includes("\0")) {
         throw new AccessError("path must be a non-empty string");
     }
-    const absolute = path.resolve(roots[0], plainPath(requested));
+    const plain = plainPath(requested);
+    const absolute = path.resolve(baseRoot(plain, roots), plain);
     // A UNC path (\\server\share, \\.\UNC\...) outside every folder is refused
     // from its text alone: on Windows, realpath on it opens an SMB connection
     // to that server, which can leak NTLM credentials.
     if (/^[\\/]{2}/.test(absolute) && !roots.some((r) => isInside(absolute, r))) throw outside(requested);
     let real;
     try {
-        real = fs.realpathSync(absolute);
-    } catch {
+        real = realpath(absolute);
+    } catch (e) {
         // The same answer for a missing path outside the folders as for an
         // existing one, so the agent cannot probe what exists there. A
         // dangling symlink is refused too: its target may lie outside.
         let link = false;
         try { link = fs.lstatSync(absolute).isSymbolicLink(); } catch { /* missing */ }
+        // A symlink loop inside the folders is named; where it points is not followed.
+        if (link && e.code === "ELOOP" && loopsInside(absolute, roots)) {
+            throw new AccessError(`Access denied: ${requested} is a symlink loop`);
+        }
         if (link || !roots.some((r) => isInside(realOrNearest(absolute), r))) throw outside(requested);
         throw new AccessError(`Not found: ${requested}`);
     }
@@ -148,6 +191,8 @@ function isJavaScriptFile(file) {
 module.exports = {
     AccessError,
     JS_EXTENSIONS,
+    baseRoot,
+    realpath,
     TS_EXTENSIONS,
     SOURCE_EXTENSIONS,
     SUPPORTED_LIST,

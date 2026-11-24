@@ -61,6 +61,22 @@ function readConfig(file) {
     return { exists: true, original, data };
 }
 
+// Whether file has a "sentinel-ir" server; false for a missing or unreadable file.
+function hasServerEntry(file) {
+    try {
+        const servers = readConfig(file).data.mcpServers;
+        return Boolean(servers) && Object.prototype.hasOwnProperty.call(servers, SERVER_NAME);
+    } catch {
+        return false;
+    }
+}
+
+// Whether a and b name the same file (one may be a symlink to the other, or
+// to a folder holding it); false if either is missing.
+function sameFile(a, b) {
+    try { return fs.realpathSync(a) === fs.realpathSync(b); } catch { return false; }
+}
+
 // seedFile: an older config location whose servers are copied into a new file.
 function planFileChange(file, entry, seedFile = null) {
     const target = fs.existsSync(file) ? fs.realpathSync(file) : file;
@@ -257,6 +273,13 @@ async function runSetup(opts, io) {
         const audit = await chooseAuditLog(opts, io, previous, project);
         const plan = planFileChange(file, serverEntry(folder, io.platform, exclude, audit), seed);
         out(describePlan(client, plan, project));
+        if (client === "cursor" && !opts.config) {
+            const other = spec.configPath({ ...ctx, global: !opts.global });
+            if (path.resolve(other) !== path.resolve(file) && !sameFile(other, file) && hasServerEntry(other)) {
+                out(`Warning: ${other} also has a "${SERVER_NAME}" server. Cursor may start that one instead, ` +
+                    `with its own folders, exclusions and audit log. Delete it there, or switch it off in Cursor Settings → MCPs.\n`);
+            }
+        }
         out(describeExcluded(exclude, [project], SKIP_DIRS).join("\n") + "\n");
         out(describeAudit(audit, io, ` --client ${client}${opts.global ? " --global" : ""}`));
         out(percentNote(project));
@@ -295,4 +318,4 @@ async function runSetup(opts, io) {
     }
 }
 
-module.exports = { SetupError, validateProject, readConfig, planFileChange, applyPlan, runSetup };
+module.exports = { SetupError, validateProject, readConfig, hasServerEntry, sameFile, planFileChange, applyPlan, runSetup };

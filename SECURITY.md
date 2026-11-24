@@ -66,7 +66,9 @@ on the [tag pipelines](https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/pipel
 Check a version yourself (npm 9.5 or newer):
 
 ```sh
-mkdir check && cd check && npm init -y
+mkdir check
+cd check
+npm init -y
 npm install sentinel-ir-mcp@<version>
 npm audit signatures
 ```
