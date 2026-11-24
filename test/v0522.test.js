@@ -236,7 +236,7 @@ test("Cursor global-only: repair hints name --global; a broken project config is
         fs.writeFileSync(path.join(sb.project, ".cursor", "mcp.json"), "{ not json");
         const broken = await doctor(sb, ["--client", "cursor"]);
         assert.equal(broken.ok, false);
-        assert.equal(byId(broken, "cursor.location").length, 0);
+        assert.match(byId(broken, "cursor.location")[0].message, /cannot be read/);
         assert.ok(broken.checks.some((c) => c.status === "fail" && /not valid JSON/.test(c.message)), JSON.stringify(broken.checks));
     } finally { sb.cleanup(); }
 });

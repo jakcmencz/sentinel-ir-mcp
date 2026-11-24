@@ -115,6 +115,7 @@ test("every tool call is logged with its outcome, never with source code", async
         assert.equal(file.risk, "critical");
         assert.equal(file.path, "danger.js");
         assert.deepEqual([excluded.reason, outside.reason, missing.reason, big.reason], ["excluded", "outside", "not-found", "too-large"]);
+        assert.ok(!JSON.stringify(excluded).includes("secrets"), "the excluded name is not in the JSON line either");
         assert.ok(lines.every((l) => !JSON.parse(l).message || !JSON.parse(l).message.includes(MARKER)));
         assert.equal(dir.tool, "analyze_directory");
         assert.equal(dir.excluded, 1);
@@ -122,7 +123,8 @@ test("every tool call is logged with its outcome, never with source code", async
         assert.ok(!JSON.stringify(dir).includes("secrets"), "excluded names stay out of the log too");
         const view = await cli(sb, "log", ["--dir", sb.logs]);
         assert.equal(view.code, 0);
-        assert.match(view.stdout, /\[audit-test-client\] REFUSED file secrets\/key\.js: excluded by your settings/);
+        assert.match(view.stdout, /\[audit-test-client\] REFUSED file \(excluded\): excluded by your settings/);
+        assert.ok(!view.stdout.includes("secrets"), "the name of an excluded file is not logged");
         assert.match(view.stdout, /REFUSED file \.\.\/home\/x\.js: outside the allowed folders/);
         assert.match(view.stdout, /file danger\.js: critical/);
         assert.match(view.stdout, /pasted code \(\d+ bytes, typescript\): critical/);

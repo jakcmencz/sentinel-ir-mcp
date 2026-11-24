@@ -3,6 +3,29 @@
 Release notes of `sentinel-ir-mcp`, newest first. Each version is on npm:
 `https://www.npmjs.com/package/sentinel-ir-mcp/v/<version>`.
 
+**0.5.23** fixes from a test with real agents (Cursor, VS Code Copilot) on Linux, macOS and Windows:
+- Several folders: every path in a result is a full path, so a file from a
+  scan of the second folder is never analyzed from the first one;
+  `analyze_directory` lists them in `allowedFolders`. A relative path that
+  exists in more than one folder is refused as ambiguous.
+- `setup` refuses `--project` given twice (it used to keep only the last one).
+- `analyze_code` refuses empty code instead of answering `complete` / `low`.
+- The audit log no longer writes the name of an excluded file that was asked
+  for, as this README said.
+- `doctor`: no `min-release-age` warning on npm 10 (it ignores the setting);
+  `before` shows the date and that npx may find no version at all
+  (`ENOVERSIONS`); with only a global Cursor config every hint names
+  `--global`, also when the project config is broken; an exclusion is
+  "matches nothing" only when it matches in none of the folders.
+- Windows hints use double quotes, which work in PowerShell and cmd.exe. A
+  symlink loop in a parent folder is named as such. Hard links skipped in a
+  scan no longer take places in `max_files`.
+- `sentinel-ir` 0.5.16 and 0.5.17: an unsupported script (`install`, `Makefile`, `.sh`,
+  `.ps1`, `.rb`) that pipes a download to a shell, opens a reverse shell,
+  sends secrets or spawns processes is `critical`; deletes and persistence
+  are `high`. 0.5.17: these checks take milliseconds even on a 1 MB line.
+- `SECURITY.md` names a real version instead of `<version>`.
+
 **0.5.22** fixes from a user test on Linux, macOS and Windows:
 - Cursor: `setup` and `doctor` warn when `sentinel-ir` is in both
   `~/.cursor/mcp.json` and the project `.cursor/mcp.json` (Cursor may start

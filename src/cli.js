@@ -78,9 +78,14 @@ function parse(command, argv) {
         let value;
         if (arg === "-h" || arg === "--help") return { help: true };
         if (arg.startsWith("--") && arg.includes("=")) [arg, value] = [arg.slice(0, arg.indexOf("=")), arg.slice(arg.indexOf("=") + 1)];
-        if (!Object.prototype.hasOwnProperty.call(spec, arg)) throw new UsageError(`unknown ${arg.startsWith("-") ? "option" : "argument"} ${arg}`);
+        if (command === "log" && arg === "--audit-log") throw new UsageError("log reads the audit log from --dir <folder> (the folder given to --audit-log=<folder>), or from the default folder without --dir");
+        if (!Object.prototype.hasOwnProperty.call(spec, arg)) {
+            const more = command === "setup" && !arg.startsWith("-") ? `; setup gives the agent one folder, pass it with --project <folder>` : "";
+            throw new UsageError(`unknown ${arg.startsWith("-") ? "option" : "argument"} ${arg}${more}`);
+        }
         if (OPTIONAL_VALUE.has(arg)) {
             if (value === "") throw new UsageError(`${arg}= needs a folder`);
+            if (opts[spec[arg]] !== undefined) throw new UsageError(`${arg} given more than once`);
             opts[spec[arg]] = value === undefined ? true : value;
         } else if (spec[arg] === true) {
             if (value !== undefined) throw new UsageError(`${arg} takes no value`);
@@ -89,7 +94,11 @@ function parse(command, argv) {
             if (value === undefined) value = argv[++i];
             if (value === undefined || value === "") throw new UsageError(`${arg} needs a value`);
             if (REPEATABLE.has(arg)) (opts[spec[arg]] ||= []).push(value);
-            else opts[spec[arg]] = value;
+            else if (opts[spec[arg]] !== undefined) {
+                throw new UsageError(arg === "--project"
+                    ? "--project given more than once; setup gives the agent one folder. For several folders run setup for one, then add the other folders to the server's args in the config (see \"Several folders\" in the README)"
+                    : `${arg} given more than once`);
+            } else opts[spec[arg]] = value;
         }
     }
     return opts;

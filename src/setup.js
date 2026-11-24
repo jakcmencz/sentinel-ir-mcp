@@ -219,8 +219,11 @@ function percentNote(project) {
         : "";
 }
 
+// On Windows double quotes work in PowerShell and in cmd.exe; single quotes
+// only in PowerShell. A value PowerShell would expand in double quotes keeps them.
 function hintArg(value, platform) {
-    return platform === "win32" ? powershellQuote(value) : shellQuote(value);
+    if (platform !== "win32") return shellQuote(value);
+    return /[$`"%!]/.test(value) ? powershellQuote(value) : `"${value}"`;
 }
 
 async function runSetup(opts, io) {
@@ -237,7 +240,7 @@ async function runSetup(opts, io) {
             if (!client) throw new SetupError("No client chosen. Nothing was changed.");
         }
         if (!Object.prototype.hasOwnProperty.call(CLIENTS, client)) {
-            throw new SetupError(`Unknown client "${client}". Use one of: ${Object.keys(CLIENTS).join(", ")}.`);
+            throw new SetupError(`Unknown client "${client}". Use one of: ${Object.keys(CLIENTS).join(", ")} (lowercase, as written here).`);
         }
         const spec = CLIENTS[client];
         if (opts.global && client !== "cursor") throw new SetupError("--global only applies to --client cursor.");

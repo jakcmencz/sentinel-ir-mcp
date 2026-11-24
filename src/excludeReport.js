@@ -7,15 +7,18 @@ const { createExcluder, countExcluded } = require("./exclude");
 function describeExcluded(patterns, folders, skipDirs) {
     if (!patterns.length) return ["Excluded: nothing (the agent may analyze every source file in the folder)"];
     const lines = [`Excluded: ${patterns.join(", ")} (set by you; the agent cannot change it)`];
+    // With several folders a pattern is often meant for one of them: only one
+    // that matches in none of them looks like a typo.
+    let unused = patterns;
     for (const folder of folders) {
         const all = countExcluded(folder, createExcluder(patterns), { skipDirs });
         const more = all.complete ? "" : " or more (stopped counting)";
         const sample = all.examples.length ? `, e.g. ${all.examples.join(", ")}` : "";
         lines.push(`  in ${folder}: ${all.excluded}${more} file(s) or folder(s) excluded right now${sample}`);
-        if (!all.complete) continue;
-        const unused = patterns.filter((p) => countExcluded(folder, createExcluder([p]), { skipDirs }).excluded === 0);
-        if (unused.length) lines.push(`  matches nothing there yet (typo?): ${unused.join(", ")}`);
+        if (!all.complete) { unused = []; continue; }
+        unused = unused.filter((p) => countExcluded(folder, createExcluder([p]), { skipDirs }).excluded === 0);
     }
+    if (unused.length && folders.length) lines.push(`  matches nothing ${folders.length > 1 ? "in any of these folders" : "there"} yet (typo?): ${unused.join(", ")}`);
     return lines;
 }
 
