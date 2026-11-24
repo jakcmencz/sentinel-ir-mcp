@@ -1,6 +1,6 @@
 {
   "name": "sentinel-ir-mcp",
-  "version": "0.5.20",
+  "version": "0.5.21",
   "mcpName": "io.github.jakcmencz/sentinel-ir-mcp",
   "description": "MCP server for sentinel-ir: lets AI agents (Claude Desktop, Cursor, Windsurf, ...) read a compact structural IR of JavaScript, TypeScript, Python and Rust files instead of the raw source. Read-only, sandboxed to allowed folders.",
   "main": "src/server.js",
@@ -13,7 +13,8 @@
     "README.md",
     "CHANGELOG.md",
     "LICENSE",
-    "NOTICE"
+    "NOTICE",
+    "SECURITY.md"
   ],
   "scripts": {
     "start": "node bin/sentinel-ir-mcp.js",

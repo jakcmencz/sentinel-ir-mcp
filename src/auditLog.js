@@ -178,7 +178,7 @@ function splitHashes(entry) {
 }
 
 function createAuditLog({ dir, now = () => Date.now(), onError = (m) => process.stderr.write(`sentinel-ir-mcp: ${m}\n`) } = {}) {
-    if (!dir) return { active: false, record() {}, flush: async () => {} };
+    if (!dir) return { active: false, record: async () => {}, flush: async () => {} };
     let queue = Promise.resolve();
     let prunedFor = null;
     let fullDay = null;
@@ -225,6 +225,7 @@ function createAuditLog({ dir, now = () => Date.now(), onError = (m) => process.
             if (!failed) onError(`cannot write the audit log in ${dir}: ${err.message}`);
             failed = true;
         });
+        return queue;
     }
 
     return { active: true, dir, record, flush: () => queue };

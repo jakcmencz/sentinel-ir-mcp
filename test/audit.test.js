@@ -49,7 +49,7 @@ async function connect(args, env = {}) {
     transport.stderr.on("data", (d) => { stderr += d; });
     const client = new Client({ name: "audit-test-client", version: "1.0.0" });
     await client.connect(transport);
-    return { client, stderr: () => stderr };
+    return { client, transport, stderr: () => stderr };
 }
 
 function readLines(dir) {
@@ -206,23 +206,23 @@ test("a path with newlines and terminal codes cannot fake a log line or recolor 
     }
 });
 
-test("two servers writing at once never mix or lose lines", async () => {
+test("two servers writing at once never mix or lose lines, even when killed right after answering", async () => {
     const sb = sandbox();
     const servers = await Promise.all([0, 1, 2].map(() => connect([`--audit-log=${sb.logs}`, sb.project])));
     const PER = 60;
     try {
         await Promise.all(servers.flatMap(({ client }) => Array.from({ length: PER }, (_, i) =>
             call(client, i % 2 ? "analyze_file" : "analyze_code", i % 2 ? { path: `app.js` } : { code: `let a${i} = ${"1+".repeat(400)}1;` }))));
-    } finally {
-        await Promise.all(servers.map(({ client }) => client.close()));
-    }
-    try {
-        const lines = await waitForLines(sb.logs, 3 * (PER + 1));
+        // Clients may kill the server without waiting (on Windows that is
+        // TerminateProcess): every answered call must already be on disk.
+        for (const { transport } of servers) process.kill(transport.pid, "SIGKILL");
+        const lines = readLines(sb.logs);
         assert.equal(lines.length, 3 * (PER + 1));
         const parsed = lines.map((l) => JSON.parse(l));
         assert.equal(new Set(parsed.map((e) => e.pid)).size, 3);
         assert.equal(parsed.filter((e) => e.tool === "analyze_code").length, 3 * PER / 2);
     } finally {
+        await Promise.all(servers.map(({ client }) => client.close()));
         sb.cleanup();
     }
 });
