@@ -106,20 +106,31 @@ function npmPolicy(env, platform, execPath, cwd, timeoutMs = 5000) {
             const m = /^([a-z-]+)=(.*)$/.exec(line.trim());
             if (m && POLICY_KEYS.includes(m[1])) out[m[1]] = m[2];
         }
+        try { out.npmVersion = JSON.parse(fs.readFileSync(p.join(p.dirname(p.dirname(cli)), "package.json"), "utf8")).version; } catch { /* unknown */ }
         return out;
     } catch {
         return null;
     }
 }
 
+// npm prints a date setting as Date.toString(), in the local time zone.
+function shortDate(value) {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? value.slice(0, 40) : d.toISOString().replace(/T00:00:00\.000Z$/, "").replace(/\.000Z$/, "Z");
+}
+
 function checkNpmPolicy(io, project, add) {
     const values = io.npmPolicy ? io.npmPolicy(project) : npmPolicy(io.env, io.platform, io.execPath || process.execPath, project);
     if (!values) return;
-    const set = POLICY_KEYS.filter((k) => typeof values[k] === "string" && !["", "null", "undefined", "0"].includes(values[k]))
-        .map((k) => `${k}=${values[k].slice(0, 40)}`);
-    if (set.length === 0) return;
+    const on = (k) => typeof values[k] === "string" && !["", "null", "undefined", "0"].includes(values[k]);
+    // npm 10 does not know min-release-age and ignores it.
+    const major = Number(String(values.npmVersion || "").split(".")[0]);
+    const keys = POLICY_KEYS.filter((k) => on(k) && !(k === "min-release-age" && major > 0 && major < 11));
+    if (keys.length === 0) return;
+    const set = keys.map((k) => `${k}=${k === "before" ? shortDate(values[k]) : values[k].slice(0, 40)}`);
+    const none = keys.includes("before") ? `, or none at all when the date is before its first release (npm error code ENOVERSIONS: the client then cannot start the server)` : "";
     add("warn", "npm.policy", `npm in ${project} has ${set.join(", ")} (from an .npmrc there, in a parent folder or in your npm config); ` +
-        `npx then installs an older sentinel-ir-mcp than the newest ${PACKAGE_SPEC.split("@")[1]}, and deleting the npx cache does not change that`,
+        `npx then installs an older sentinel-ir-mcp than the newest ${PACKAGE_SPEC.split("@")[1]}${none}, and deleting the npx cache does not change that`,
         `See which file sets it: npm config list (in that folder). Remove it there to get the newest version, or keep it and accept the older one.`);
 }
 
@@ -605,6 +616,13 @@ async function runDoctor(opts, io) {
     const cursorGlobal = opts.global || realDir(project) === realDir(homeOf(io.env));
     // Set when only the global Cursor config has the server: repairs then target it.
     let cursorFallback = false;
+    if (opts.client === "cursor" && !opts.config && !cursorGlobal) {
+        // Known before the first hint, so every repair hint names --global.
+        const ctx = { project, global: false, env: io.env, platform: io.platform };
+        const own = CLIENTS.cursor.configPath(ctx);
+        const globalFile = CLIENTS.cursor.configPath({ ...ctx, global: true });
+        cursorFallback = !hasServerEntry(own) && !sameFile(own, globalFile) && hasServerEntry(globalFile);
+    }
     const setupFor = (client) => `--client ${client}${(cursorGlobal || cursorFallback) && client === "cursor" ? " --global" : ""}${refused ? " --project <your project folder>" : ""}`;
     const setupHint = setupFor(opts.client || "<your client>");
 
@@ -622,7 +640,7 @@ async function runDoctor(opts, io) {
     checkNpmPolicy(io, project, add);
 
     if (opts.client && !Object.prototype.hasOwnProperty.call(CLIENTS, opts.client)) {
-        add("fail", "client", `Unknown client "${opts.client}"`, `Use one of: ${Object.keys(CLIENTS).join(", ")}.`);
+        add("fail", "client", `Unknown client "${opts.client}"`, `Use one of: ${Object.keys(CLIENTS).join(", ")} (lowercase, as written here).`);
     } else if (opts.client && CLIENTS[opts.client].kind === "command") {
         add("skip", `${opts.client}.config`, `${CLIENTS[opts.client].label} keeps its own server list; check it there (VS Code: "MCP: List Servers", Claude Code: "claude mcp list").`);
     }
@@ -652,9 +670,11 @@ async function runDoctor(opts, io) {
             if (inProject && inGlobal) {
                 add("warn", "cursor.duplicate", `Cursor: "${SERVER_NAME}" is in both ${file} and ${globalFile}; Cursor may start the global one, which does not have this project's exclusions and audit log`,
                     `Keep one: delete the "${SERVER_NAME}" entry from ${globalFile} (or the project one), or switch one off in Cursor Settings → MCPs.`);
-            } else if (!inProject && inGlobal && projectReadable) {
+            } else if (!inProject && inGlobal) {
+                // A broken project config is still reported; Cursor may skip it and use the global one.
                 cursorFallback = true;
-                add("ok", "cursor.location", `Cursor: no "${SERVER_NAME}" in ${file}; checking the global ${globalFile}`);
+                if (!projectReadable) checkConfig(client, file, true, project, add, io.platform, io.env, setupFor);
+                add("ok", "cursor.location", `Cursor: no "${SERVER_NAME}" in ${file}${projectReadable ? "" : " (it cannot be read)"}; checking the global ${globalFile}`);
                 file = globalFile;
             }
         }

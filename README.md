@@ -56,23 +56,28 @@ and Rust (and what is not) is listed in the
 
 Older versions: [CHANGELOG.md](https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/blob/main/CHANGELOG.md).
 
-**0.5.22** fixes from a user test on Linux, macOS and Windows:
-- Cursor: `setup` and `doctor` warn when `sentinel-ir` is in both
-  `~/.cursor/mcp.json` and the project `.cursor/mcp.json` (Cursor may start
-  the global one, without the project's exclusions and audit log);
-  `doctor --client cursor` checks the global file when the project has none.
-- `doctor` warns about an npm `min-release-age` or `before` setting (e.g. a
-  project `.npmrc`), which makes npx start an older release.
-- Several folders: a relative path resolves against the first folder in which
-  it exists, and `analyze_directory` without `path` lists the folders it did
-  not scan in `otherFolders`.
-- macOS: an absolute path in a different letter case than the folder is no
-  longer refused. A symlink loop is named as such. UTF-16 files with a byte
-  order mark are read as text.
-- `sentinel-ir` 0.5.15: TypeScript `<in T>` / `<out T>` parse; code with no
-  or an unsupported file extension is `incomplete` and at least `medium`.
-- Help and messages use `npx -y sentinel-ir-mcp@stable-0.5`; `SECURITY.md`
-  commands work in Windows PowerShell 5.1.
+**0.5.23** fixes from a test with real agents (Cursor, VS Code Copilot) on Linux, macOS and Windows:
+- Several folders: every path in a result is a full path, so a file from a
+  scan of the second folder is never analyzed from the first one;
+  `analyze_directory` lists them in `allowedFolders`. A relative path that
+  exists in more than one folder is refused as ambiguous.
+- `setup` refuses `--project` given twice (it used to keep only the last one).
+- `analyze_code` refuses empty code instead of answering `complete` / `low`.
+- The audit log no longer writes the name of an excluded file that was asked
+  for, as this README said.
+- `doctor`: no `min-release-age` warning on npm 10 (it ignores the setting);
+  `before` shows the date and that npx may find no version at all
+  (`ENOVERSIONS`); with only a global Cursor config every hint names
+  `--global`, also when the project config is broken; an exclusion is
+  "matches nothing" only when it matches in none of the folders.
+- Windows hints use double quotes, which work in PowerShell and cmd.exe. A
+  symlink loop in a parent folder is named as such. Hard links skipped in a
+  scan no longer take places in `max_files`.
+- `sentinel-ir` 0.5.16: an unsupported script (`install`, `Makefile`, `.sh`,
+  `.ps1`, `.rb`) that pipes a download to a shell, opens a reverse shell,
+  sends secrets or spawns processes is `critical`; deletes and persistence
+  are `high`.
+- `SECURITY.md` names a real version instead of `<version>`.
 
 ## Tools
 
@@ -400,10 +405,14 @@ sentinel-ir-mcp [--exclude <name>]... [--audit-log[=<folder>]] [--max-file-bytes
   or, without folder arguments, inside one of the client's MCP roots. `../`,
   absolute paths elsewhere and symlinks pointing outside are refused, with the
   same answer whether or not the path exists (since 0.5.8).
-- **Several folders.** A relative path is taken from the first allowed folder
-  in which it exists (since 0.5.22; before, always the first).
+- **Several folders.** Every path in a result is a full path and
+  `analyze_directory` lists the folders in `allowedFolders` (since 0.5.23).
+  A relative path is taken from the allowed folder in which it exists; one
+  that exists in more than one is refused as `Ambiguous path` (since 0.5.23;
+  0.5.22 took the first, older versions always the first folder).
   `analyze_directory` without `path` scans only the first folder and lists
-  the others in `otherFolders`.
+  the others in `otherFolders`. `setup` writes one folder; add more to the
+  server's `args` in the config by hand.
 - **Local paths only.** URLs (`http://…`, `data:`, `mailto:`, `file:src/x.js`),
   network paths (`\\server\share\x.js`, `//server/share/x.js`) and
   `file://server/…` are refused as `Not a file path: … is a URL` or as

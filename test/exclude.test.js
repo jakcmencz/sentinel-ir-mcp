@@ -215,7 +215,7 @@ test("with several allowed folders the patterns apply inside each of them", asyn
         const roots = [fx.project, other];
         await assert.rejects(analyzeFile(path.join(other, "secrets", "k.js"), roots, excl()), /Excluded/);
         const r = await analyzeDirectory(other, roots, excl());
-        assert.deepEqual(r.files.map((f) => f.path), ["ok.js"]);
+        assert.deepEqual(r.files.map((f) => f.path), [path.join(other, "ok.js")]);
         assert.equal(r.skipped.excluded, 1);
     } finally {
         fx.cleanup();

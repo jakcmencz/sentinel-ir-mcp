@@ -5,7 +5,7 @@ const { createHash } = require("crypto");
 const { constants, realpathSync } = require("fs");
 const path = require("path");
 const { analyzeAsync, compress } = require("sentinel-ir");
-const { AccessError, resolveInside, isInside, isSourceFile, plainPath, baseRoot, realpath, SUPPORTED_LIST } = require("./paths");
+const { AccessError, resolveInside, isInside, isSourceFile, plainPath, baseRoot, candidateRoots, realpath, SUPPORTED_LIST } = require("./paths");
 const { isExcluded, NONE } = require("./exclude");
 
 // O_NONBLOCK: opening a FIFO swapped in after listing must not block the
@@ -27,6 +27,16 @@ function resolveAllowed(requested, roots, excluder) {
     if (excluder.active && roots.length && typeof requested === "string" && requested.trim() !== "" && !requested.includes("\0")) {
         const plain = plainPath(requested);
         if (isExcluded(path.resolve(baseRoot(plain, roots), plain), roots, excluder)) throw excludedError(requested);
+    }
+    // A relative path that exists in several allowed folders is refused: the
+    // agent may have it from a scan of another folder than the first.
+    if (roots.length > 1 && typeof requested === "string" && requested.trim() !== "" && !requested.includes("\0")) {
+        const plain = plainPath(requested);
+        const found = candidateRoots(plain, roots).filter((c) => !isExcluded(c.real, roots, excluder));
+        if (found.length > 1) {
+            throw new AccessError(`Ambiguous path: ${requested} exists in ${found.length} allowed folders (${found.map((c) => c.root).join(", ")}). ` +
+                `Pass the full path, e.g. ${path.join(found[0].root, plain)}`);
+        }
     }
     const resolved = resolveInside(requested, roots);
     if (isExcluded(resolved.real, roots, excluder)) throw excludedError(requested);
@@ -195,15 +205,18 @@ async function collectFiles(dir, root, { maxFiles, maxFileBytes, recursive, excl
                     walk.notScanned++;
                     continue;
                 }
-                let size;
+                let size, nlink;
                 try {
-                    ({ size } = await fs.lstat(full));
+                    ({ size, nlink } = await fs.lstat(full));
                 } catch {
                     skipped.unreadable.push(rel);
                     continue;
                 }
+                // Skipped files do not take places in max_files.
                 if (size > maxFileBytes) {
                     skipped.tooLarge.push(rel);
+                } else if (nlink > 1) {
+                    skipped.hardlinks.push(rel);
                 } else if (walk.files.length >= maxFiles) {
                     walk.truncated = true;
                     walk.notScanned++;
@@ -292,11 +305,19 @@ async function analyzeDirectory(
     { maxFiles, maxFileBytes, recursive = true, timeBudgetMs = Infinity, detail = "summary", excluder = NONE, hashes = null, defaulted = false }
 ) {
     const started = Date.now();
-    const { real, root, display } = resolveAllowed(requested, roots, excluder);
+    // Without a path: the first allowed folder ("." would exist in all of them).
+    const { real, root, display } = resolveAllowed(defaulted && roots.length ? roots[0] : requested, roots, excluder);
     const stat = await fs.stat(real);
     if (!stat.isDirectory()) throw new AccessError(`Not a folder: ${requested}`);
 
-    const { files, skipped, truncated, countRest } = await collectFiles(real, root, { maxFiles, maxFileBytes, recursive, excluder });
+    const walked = await collectFiles(real, root, { maxFiles, maxFileBytes, recursive, excluder });
+    const { truncated, countRest } = walked;
+    // With several folders every path in the answer is a full path, so it can
+    // be passed to analyze_file as is.
+    const shown = roots.length > 1 ? (rel) => path.join(root, rel) : (rel) => rel;
+    const files = walked.files.map((f) => ({ full: f.full, rel: shown(f.rel) }));
+    const skipped = { ...walked.skipped };
+    for (const k of ["tooLarge", "unreadable", "hardlinks", "cargoTarget"]) skipped[k] = walked.skipped[k].map(shown);
     const results = [];
     const notAnalyzed = [];
     for (const { full, rel } of files) {
@@ -357,6 +378,7 @@ async function analyzeDirectory(
         folder: display,
         ...(warning ? { warning } : {}),
         ...(note ? { note, otherFolders: others } : {}),
+        ...(roots.length > 1 ? { allowedFolders: roots } : {}),
         analyzed: results.length,
         truncated,
         notScanned,

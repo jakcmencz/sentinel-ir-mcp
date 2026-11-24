@@ -122,7 +122,11 @@ function describeCall(tool, args, outcome) {
     if (outcome.error) {
         entry.ok = false;
         entry.reason = outcome.reason;
-        entry.message = cut(outcome.error);
+        // Names of excluded files can be private too: only that one was asked for.
+        if (outcome.reason === "excluded") {
+            entry.path = "(excluded)";
+            entry.message = "Excluded by the user's settings";
+        } else entry.message = cut(outcome.error);
         return entry;
     }
     entry.ok = true;

@@ -108,16 +108,33 @@ function rootsFromUris(roots) {
     return canonicalRoots(dirs);
 }
 
-// The folder a relative path is taken from: the first allowed folder in which
-// it exists with its real path inside the allowed folders, else the first one.
-// A candidate outside (../x, a symlink out) is skipped whether it exists or
-// not, so the answer does not tell the agent what exists outside.
-function baseRoot(requested, roots) {
+// The allowed folders in which a relative path exists with its real path
+// inside the allowed folders. A candidate outside (../x, a symlink out) is
+// skipped whether it exists or not, so the answer does not tell the agent
+// what exists outside.
+function candidateRoots(requested, roots) {
+    const found = [];
     if (roots.length > 1 && !path.isAbsolute(requested)) {
         for (const r of roots) {
             let real;
             try { real = realpath(path.resolve(r, requested)); } catch { continue; }
-            if (roots.some((root) => isInside(real, root))) return r;
+            if (roots.some((root) => isInside(real, root))) found.push({ root: r, real });
+        }
+    }
+    return found;
+}
+
+// The folder a relative path is taken from: the first allowed folder in which
+// it exists (see candidateRoots), else the first in which the name itself is
+// there (a symlink pointing out or nowhere, refused below), else the first one.
+function baseRoot(requested, roots) {
+    if (roots.length > 1 && !path.isAbsolute(requested)) {
+        const [first] = candidateRoots(requested, roots);
+        if (first) return first.root;
+        for (const r of roots) {
+            const at = path.resolve(r, requested);
+            if (!isInside(at, r)) continue;
+            try { fs.lstatSync(at); return r; } catch { /* not here */ }
         }
     }
     return roots[0];
@@ -140,6 +157,18 @@ function loopsInside(absolute, roots) {
     return false;
 }
 
+// The path itself or a folder on the way to it (dA/x.js) is a symlink that
+// loops inside the allowed folders.
+function loopingLink(absolute, roots) {
+    for (let p = absolute; roots.some((r) => isInside(p, r)); p = path.dirname(p)) {
+        let link = false;
+        try { link = fs.lstatSync(p).isSymbolicLink(); } catch { /* not there or looping above */ }
+        if (link) return loopsInside(p, roots);
+        if (path.dirname(p) === p) break;
+    }
+    return false;
+}
+
 // Resolves a caller-supplied path against the allowed roots (relative paths:
 // see baseRoot). The real path (symlinks followed) must stay inside one of the roots.
 function resolveInside(requested, roots) {
@@ -150,9 +179,10 @@ function resolveInside(requested, roots) {
             "that provides MCP roots."
         );
     }
-    if (typeof requested !== "string" || requested.trim() === "" || requested.includes("\0")) {
+    if (typeof requested !== "string" || requested.trim() === "") {
         throw new AccessError("path must be a non-empty string");
     }
+    if (requested.includes("\0")) throw new AccessError("path must not contain a NUL character");
     const plain = plainPath(requested);
     const absolute = path.resolve(baseRoot(plain, roots), plain);
     // A UNC path (\\server\share, \\.\UNC\...) outside every folder is refused
@@ -169,7 +199,7 @@ function resolveInside(requested, roots) {
         let link = false;
         try { link = fs.lstatSync(absolute).isSymbolicLink(); } catch { /* missing */ }
         // A symlink loop inside the folders is named; where it points is not followed.
-        if (link && e.code === "ELOOP" && loopsInside(absolute, roots)) {
+        if (e.code === "ELOOP" && loopingLink(absolute, roots)) {
             throw new AccessError(`Access denied: ${requested} is a symlink loop`);
         }
         if (link || !roots.some((r) => isInside(realOrNearest(absolute), r))) throw outside(requested);
@@ -177,7 +207,10 @@ function resolveInside(requested, roots) {
     }
     const root = roots.find((r) => isInside(real, r));
     if (!root) throw outside(requested);
-    return { real, root, display: path.relative(root, real).split(path.sep).join("/") || "." };
+    // With several folders a path relative to one of them is ambiguous, so
+    // results name the full path.
+    const display = roots.length > 1 ? real : path.relative(root, real).split(path.sep).join("/") || ".";
+    return { real, root, display };
 }
 
 function isSourceFile(file) {
@@ -192,6 +225,7 @@ module.exports = {
     AccessError,
     JS_EXTENSIONS,
     baseRoot,
+    candidateRoots,
     realpath,
     TS_EXTENSIONS,
     SOURCE_EXTENSIONS,

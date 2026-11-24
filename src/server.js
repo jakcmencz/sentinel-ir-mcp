@@ -79,6 +79,8 @@ function refusalReason(err) {
     if (m.startsWith("Not a file path")) return "url";
     if (m.startsWith("Not a file")) return "not-a-file";
     if (m.startsWith("Not a folder")) return "not-a-folder";
+    if (m.startsWith("Ambiguous path")) return "ambiguous";
+    if (m.startsWith("code is empty")) return "empty";
     return "refused";
 }
 
@@ -112,7 +114,11 @@ function createServer(options = {}) {
     const fixedRoots = canonicalRoots(options.roots || []);
     const auditLog = options.auditLog || createAuditLog({ dir: options.auditDir });
 
-    const server = new McpServer({ name: "sentinel-ir-mcp", version }, { instructions: INSTRUCTIONS + excludeNote });
+    const foldersNote = fixedRoots.length > 1
+        ? ` Allowed folders: ${fixedRoots.join(", ")}. With several folders every path in a result is a full path; ` +
+          "a relative path that exists in more than one folder is refused as ambiguous, so pass full paths."
+        : "";
+    const server = new McpServer({ name: "sentinel-ir-mcp", version }, { instructions: INSTRUCTIONS + foldersNote + excludeNote });
     if (auditLog.active) auditLog.record({ event: "start", version, folders: fixedRoots, exclusions: excluder.patterns.length });
 
     function auditor(tool, args) {
@@ -156,7 +162,11 @@ function createServer(options = {}) {
             language: z.preprocess((v) => (typeof v === "string" ? v.trim().toLowerCase() : v), z.enum(["javascript", "typescript", "tsx", "python", "rust", "js", "ts", "py", "rs"])).optional().describe("Overrides the language picked from target (default javascript)")
         },
         annotations: { title: "Analyze JavaScript, TypeScript, Python or Rust source", ...READ_ONLY }
-    }, ({ code, target, language }) => guarded(() => analyzeCode(code, target, language), auditor("analyze_code", { code, target, language })));
+    }, ({ code, target, language }) => guarded(async () => {
+        // Nothing to analyze is not a clean result: usually the code was not passed.
+        if (code.trim() === "") throw new AccessError("code is empty (or only whitespace): there is nothing to analyze. Pass the source text, or use analyze_file for a file on disk.");
+        return analyzeCode(code, target, language);
+    }, auditor("analyze_code", { code, target, language })));
 
     server.registerTool("analyze_file", {
         title: "Analyze a JavaScript, TypeScript, Python or Rust file",
@@ -165,14 +175,14 @@ function createServer(options = {}) {
             "the language comes from the extension.\n" +
             "Returns: " + IR_SHAPE + "; analysisStatus \"incomplete\" means it did not parse cleanly, so a low risk is not evidence of safety.\n" +
             "sha256 is the SHA-256 of the exact bytes analyzed: before running or relying on the file, check it still has this hash.\n" +
-            `path is absolute or relative to an allowed folder (the first one in which it exists). Refused: files over ${limits.maxFileBytes} bytes, outside the allowed folders ` +
+            `path is absolute or relative to an allowed folder (refused as ambiguous when it exists in more than one). Refused: files over ${limits.maxFileBytes} bytes, outside the allowed folders ` +
             "or with another extension.\n" +
             RISK_NOTE + "\n" +
             "Use for one file you need in full. For a folder use analyze_directory (one short entry per file, highest risk first); " +
             "for source that is not on disk use analyze_code.\n" +
             UNTRUSTED_NOTE + excludeNote,
         inputSchema: {
-            path: z.string().min(1).describe("File path, absolute or relative to an allowed folder (the first one in which it exists)")
+            path: z.string().min(1).describe("File path, absolute or relative to an allowed folder; with several folders pass the full path from analyze_directory")
         },
         annotations: { title: "Analyze a JavaScript, TypeScript, Python or Rust file", ...READ_ONLY }
     }, async ({ path }) => {
@@ -185,6 +195,7 @@ function createServer(options = {}) {
         description:
             "Scan a folder inside the allowed folders: one short entry per JavaScript, TypeScript, Python or Rust file, " +
             "highest risk first, plus riskCounts and statusCounts.\n" +
+            "With several allowed folders every path in the answer is a full path and allowedFolders lists the folders.\n" +
             "Parameters: path defaults to the first allowed folder (otherFolders lists any others, not scanned); recursive defaults to true, false scans only the top level; " +
             `max_files defaults to ${limits.maxFiles}, more files set truncated and notScanned (how many were left out); ` +
             "detail \"summary\" (default) or \"full\" (adds forbidden, objective and all facts per file, much larger).\n" +
