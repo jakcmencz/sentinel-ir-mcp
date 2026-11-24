@@ -11,7 +11,7 @@ const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio
 const { version, dependencies } = require("../package.json");
 const { SERVER_NAME, PACKAGE_SPEC, homeOf, WORKSPACE_VAR, CLIENTS, FILE_CLIENTS, isWindowsNpxWrapper, entryExcludes, entryAuditLog, serverFlags } = require("./clients");
 const { AuditLogError, defaultAuditDir, normalizeAuditDir, assertOutsideProjects, logFiles, dayName, createAuditLog } = require("./auditLog");
-const { readConfig, validateProject, SetupError, hasServerEntry } = require("./setup");
+const { readConfig, validateProject, SetupError, hasServerEntry, sameFile } = require("./setup");
 const { createExcluder, ExcludeError } = require("./exclude");
 const { SKIP_DIRS } = require("./analyze");
 const { describeExcluded } = require("./excludeReport");
@@ -603,7 +603,9 @@ async function runDoctor(opts, io) {
     try { validateProject(project, io.env); } catch (e) { refused = e instanceof SetupError && e.message.startsWith("Refusing"); }
     // In the home folder the Cursor project config is the global one.
     const cursorGlobal = opts.global || realDir(project) === realDir(homeOf(io.env));
-    const setupFor = (client) => `--client ${client}${cursorGlobal && client === "cursor" ? " --global" : ""}${refused ? " --project <your project folder>" : ""}`;
+    // Set when only the global Cursor config has the server: repairs then target it.
+    let cursorFallback = false;
+    const setupFor = (client) => `--client ${client}${(cursorGlobal || cursorFallback) && client === "cursor" ? " --global" : ""}${refused ? " --project <your project folder>" : ""}`;
     const setupHint = setupFor(opts.client || "<your client>");
 
     const nodeVersion = io.nodeVersion || process.versions.node;
@@ -643,12 +645,15 @@ async function runDoctor(opts, io) {
         // in both it may start the global one, without the project's options.
         if (client === "cursor" && !opts.config && !cursorGlobal) {
             const globalFile = CLIENTS.cursor.configPath({ ...ctx, global: true });
+            let projectReadable = true;
+            try { readConfig(file); } catch { projectReadable = false; }
             const inProject = hasServerEntry(file);
-            const inGlobal = hasServerEntry(globalFile);
+            const inGlobal = !sameFile(file, globalFile) && hasServerEntry(globalFile);
             if (inProject && inGlobal) {
                 add("warn", "cursor.duplicate", `Cursor: "${SERVER_NAME}" is in both ${file} and ${globalFile}; Cursor may start the global one, which does not have this project's exclusions and audit log`,
                     `Keep one: delete the "${SERVER_NAME}" entry from ${globalFile} (or the project one), or switch one off in Cursor Settings → MCPs.`);
-            } else if (!inProject && inGlobal) {
+            } else if (!inProject && inGlobal && projectReadable) {
+                cursorFallback = true;
                 add("ok", "cursor.location", `Cursor: no "${SERVER_NAME}" in ${file}; checking the global ${globalFile}`);
                 file = globalFile;
             }
@@ -675,7 +680,7 @@ async function runDoctor(opts, io) {
         const t = tag(c.label);
         for (const line of describeExcluded(c.exclude, c.folders, SKIP_DIRS)) add(line.includes("matches nothing") ? "warn" : "ok", "exclude", t + line);
         if (c.audit) add("ok", "audit", `${t}Audit log: on, in ${c.audit.path} (${describeAuditFolder(c.audit.path)}); see it: npx -y ${PACKAGE_SPEC} log${c.audit.dir ? ` --dir "${c.audit.dir}"` : ""}`);
-        else if (!c.auditBroken) add("ok", "audit", `${t}Audit log: off (turn it on: npx -y ${PACKAGE_SPEC} setup ${setupHint} --audit-log)`);
+        else if (!c.auditBroken) add("ok", "audit", `${t}Audit log: off (turn it on: npx -y ${PACKAGE_SPEC} setup ${setupFor(opts.client || "<your client>")} --audit-log)`);
     }
     const notConnected = !opts.client && !opts.config && configured.length === 0;
     if (notConnected) {

@@ -71,6 +71,12 @@ function hasServerEntry(file) {
     }
 }
 
+// Whether a and b name the same file (one may be a symlink to the other, or
+// to a folder holding it); false if either is missing.
+function sameFile(a, b) {
+    try { return fs.realpathSync(a) === fs.realpathSync(b); } catch { return false; }
+}
+
 // seedFile: an older config location whose servers are copied into a new file.
 function planFileChange(file, entry, seedFile = null) {
     const target = fs.existsSync(file) ? fs.realpathSync(file) : file;
@@ -269,7 +275,7 @@ async function runSetup(opts, io) {
         out(describePlan(client, plan, project));
         if (client === "cursor" && !opts.config) {
             const other = spec.configPath({ ...ctx, global: !opts.global });
-            if (path.resolve(other) !== path.resolve(file) && hasServerEntry(other)) {
+            if (path.resolve(other) !== path.resolve(file) && !sameFile(other, file) && hasServerEntry(other)) {
                 out(`Warning: ${other} also has a "${SERVER_NAME}" server. Cursor may start that one instead, ` +
                     `with its own folders, exclusions and audit log. Delete it there, or switch it off in Cursor Settings → MCPs.\n`);
             }
@@ -312,4 +318,4 @@ async function runSetup(opts, io) {
     }
 }
 
-module.exports = { SetupError, validateProject, readConfig, hasServerEntry, planFileChange, applyPlan, runSetup };
+module.exports = { SetupError, validateProject, readConfig, hasServerEntry, sameFile, planFileChange, applyPlan, runSetup };

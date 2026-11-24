@@ -188,3 +188,65 @@ test("SECURITY.md commands run in Windows PowerShell 5.1 (no &&)", () => {
     const sec = fs.readFileSync(path.join(__dirname, "..", "SECURITY.md"), "utf8");
     for (const block of sec.matchAll(/```sh\n([\s\S]*?)```/g)) assert.doesNotMatch(block[1], /&&/);
 });
+
+test("several folders: a relative path that leaves the folders never picks the folder, existing or not", async () => {
+    const fx = makeFixture();
+    const second = path.join(fx.base, "second");
+    fs.mkdirSync(second);
+    fs.writeFileSync(path.join(second, "a.js"), "module.exports = 2;\n");
+    // ../outside/private.js exists from project, ../outside/missing.js does not: same answer.
+    const c = await connect({ roots: [fx.project, second] });
+    try {
+        const there = (await call(c.client, "analyze_file", { path: "../outside/private.js" })).text;
+        const missing = (await call(c.client, "analyze_file", { path: "../outside/missing.js" })).text;
+        assert.match(there, /outside the allowed folders/);
+        assert.equal(there.replace("private", "X"), missing.replace("missing", "X"));
+        // linked-dir/private.js resolves outside through a symlink in the first folder: skipped, so a.js-like
+        // names in the second folder still win and outside existence does not change the answer.
+        fs.writeFileSync(path.join(second, "private.js"), "module.exports = 3;\n");
+        fs.mkdirSync(path.join(second, "linked-dir"));
+        fs.writeFileSync(path.join(second, "linked-dir", "private.js"), "module.exports = 4;\n");
+        const viaSecond = await call(c.client, "analyze_file", { path: "linked-dir/private.js" });
+        assert.equal(viaSecond.isError, undefined, viaSecond.text);
+    } finally { await c.close(); fx.cleanup(); }
+});
+
+test("a symlink loop outside the folders, reached through an allowed link, is refused as outside", { skip: process.platform === "win32" }, async () => {
+    const fx = makeFixture();
+    fs.symlinkSync(path.join(fx.outside, "y.js"), path.join(fx.outside, "x.js"));
+    fs.symlinkSync(path.join(fx.outside, "x.js"), path.join(fx.outside, "y.js"));
+    fs.symlinkSync(path.join(fx.outside, "x.js"), path.join(fx.project, "to-cycle.js"));
+    const c = await connect({ roots: [fx.project] });
+    try {
+        const text = (await call(c.client, "analyze_file", { path: "to-cycle.js" })).text;
+        assert.match(text, /outside the allowed folders/);
+        assert.doesNotMatch(text, /loop/);
+    } finally { await c.close(); fx.cleanup(); }
+});
+
+test("Cursor global-only: repair hints name --global; a broken project config is not skipped", async () => {
+    const sb = sandbox();
+    try {
+        writeCursor(path.join(sb.home, ".cursor", "mcp.json"), path.join(sb.base, "gone"));
+        const report = await doctor(sb, ["--client", "cursor"]);
+        const hints = report.checks.map((c) => `${c.message} ${c.fix || ""}`).filter((t) => /setup --client cursor/.test(t));
+        assert.ok(hints.length > 0, JSON.stringify(report.checks));
+        for (const t of hints) assert.match(t, /setup --client cursor --global/, t);
+        fs.mkdirSync(path.join(sb.project, ".cursor"));
+        fs.writeFileSync(path.join(sb.project, ".cursor", "mcp.json"), "{ not json");
+        const broken = await doctor(sb, ["--client", "cursor"]);
+        assert.equal(broken.ok, false);
+        assert.equal(byId(broken, "cursor.location").length, 0);
+        assert.ok(broken.checks.some((c) => c.status === "fail" && /not valid JSON/.test(c.message)), JSON.stringify(broken.checks));
+    } finally { sb.cleanup(); }
+});
+
+test("Cursor: a project .cursor that links to ~/.cursor is one config, not a duplicate", { skip: process.platform === "win32" }, async () => {
+    const sb = sandbox();
+    try {
+        writeCursor(path.join(sb.home, ".cursor", "mcp.json"), sb.project);
+        fs.symlinkSync(path.join(sb.home, ".cursor"), path.join(sb.project, ".cursor"));
+        assert.equal(byId(await doctor(sb, ["--client", "cursor"]), "cursor.duplicate").length, 0);
+        assert.doesNotMatch((await run(sb, "setup", ["--client", "cursor", "--dry-run"])).stdout, /also has a "sentinel-ir" server/);
+    } finally { sb.cleanup(); }
+});

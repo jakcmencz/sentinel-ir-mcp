@@ -109,14 +109,35 @@ function rootsFromUris(roots) {
 }
 
 // The folder a relative path is taken from: the first allowed folder in which
-// it exists, else the first one.
+// it exists with its real path inside the allowed folders, else the first one.
+// A candidate outside (../x, a symlink out) is skipped whether it exists or
+// not, so the answer does not tell the agent what exists outside.
 function baseRoot(requested, roots) {
     if (roots.length > 1 && !path.isAbsolute(requested)) {
         for (const r of roots) {
-            try { fs.lstatSync(path.resolve(r, requested)); return r; } catch { /* next */ }
+            let real;
+            try { real = realpath(path.resolve(r, requested)); } catch { continue; }
+            if (roots.some((root) => isInside(real, root))) return r;
         }
     }
     return roots[0];
+}
+
+// Whether the symlink at absolute loops while every link on the way stays
+// inside the allowed folders; a chain that leaves them is not followed.
+function loopsInside(absolute, roots) {
+    const seen = new Set();
+    let p = absolute;
+    for (let hops = 0; hops < 64; hops++) {
+        const at = path.join(realOrNearest(path.dirname(p)), path.basename(p));
+        if (!roots.some((r) => isInside(at, r))) return false;
+        if (seen.has(at)) return true;
+        seen.add(at);
+        let target;
+        try { target = fs.readlinkSync(at); } catch { return false; }
+        p = path.resolve(path.dirname(at), target);
+    }
+    return false;
 }
 
 // Resolves a caller-supplied path against the allowed roots (relative paths:
@@ -148,7 +169,7 @@ function resolveInside(requested, roots) {
         let link = false;
         try { link = fs.lstatSync(absolute).isSymbolicLink(); } catch { /* missing */ }
         // A symlink loop inside the folders is named; where it points is not followed.
-        if (link && e.code === "ELOOP" && roots.some((r) => isInside(realOrNearest(path.dirname(absolute)), r))) {
+        if (link && e.code === "ELOOP" && loopsInside(absolute, roots)) {
             throw new AccessError(`Access denied: ${requested} is a symlink loop`);
         }
         if (link || !roots.some((r) => isInside(realOrNearest(absolute), r))) throw outside(requested);
