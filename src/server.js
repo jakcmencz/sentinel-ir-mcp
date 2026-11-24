@@ -165,14 +165,14 @@ function createServer(options = {}) {
             "the language comes from the extension.\n" +
             "Returns: " + IR_SHAPE + "; analysisStatus \"incomplete\" means it did not parse cleanly, so a low risk is not evidence of safety.\n" +
             "sha256 is the SHA-256 of the exact bytes analyzed: before running or relying on the file, check it still has this hash.\n" +
-            `path is absolute or relative to the first allowed folder. Refused: files over ${limits.maxFileBytes} bytes, outside the allowed folders ` +
+            `path is absolute or relative to an allowed folder (the first one in which it exists). Refused: files over ${limits.maxFileBytes} bytes, outside the allowed folders ` +
             "or with another extension.\n" +
             RISK_NOTE + "\n" +
             "Use for one file you need in full. For a folder use analyze_directory (one short entry per file, highest risk first); " +
             "for source that is not on disk use analyze_code.\n" +
             UNTRUSTED_NOTE + excludeNote,
         inputSchema: {
-            path: z.string().min(1).describe("File path, absolute or relative to the first allowed folder")
+            path: z.string().min(1).describe("File path, absolute or relative to an allowed folder (the first one in which it exists)")
         },
         annotations: { title: "Analyze a JavaScript, TypeScript, Python or Rust file", ...READ_ONLY }
     }, async ({ path }) => {
@@ -185,7 +185,7 @@ function createServer(options = {}) {
         description:
             "Scan a folder inside the allowed folders: one short entry per JavaScript, TypeScript, Python or Rust file, " +
             "highest risk first, plus riskCounts and statusCounts.\n" +
-            "Parameters: path defaults to the first allowed folder (relative paths resolve against it); recursive defaults to true, false scans only the top level; " +
+            "Parameters: path defaults to the first allowed folder (otherFolders lists any others, not scanned); recursive defaults to true, false scans only the top level; " +
             `max_files defaults to ${limits.maxFiles}, more files set truncated and notScanned (how many were left out); ` +
             "detail \"summary\" (default) or \"full\" (adds forbidden, objective and all facts per file, much larger).\n" +
             "Summary entry: {path, risk, analysisStatus, language, lines, operations, riskSignals " +
@@ -200,7 +200,7 @@ function createServer(options = {}) {
             "Use for a first look at a project or folder, then analyze_file for the full IR of the files that matter.\n" +
             UNTRUSTED_NOTE + excludeNote,
         inputSchema: {
-            path: z.string().min(1).optional().describe("Folder path, absolute or relative to the first allowed folder (default: the first allowed folder)"),
+            path: z.string().min(1).optional().describe("Folder path, absolute or relative to an allowed folder (default: the first allowed folder; with several, the answer lists the others in otherFolders)"),
             max_files: z.number().int().min(1).max(DEFAULT_LIMITS.hardMaxFiles).optional()
                 .describe(`Maximum number of files to analyze (default ${limits.maxFiles}, max ${DEFAULT_LIMITS.hardMaxFiles})`),
             recursive: z.boolean().optional().describe("Include subfolders (default true); false scans only the top level"),
@@ -217,7 +217,8 @@ function createServer(options = {}) {
             recursive: recursive ?? true,
             detail: detail ?? "summary",
             excluder,
-            hashes
+            hashes,
+            defaulted: path === undefined
         }), auditor("analyze_directory", { path, max_files, recursive, detail, hashes }));
     });
 

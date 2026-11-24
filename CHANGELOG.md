@@ -3,6 +3,24 @@
 Release notes of `sentinel-ir-mcp`, newest first. Each version is on npm:
 `https://www.npmjs.com/package/sentinel-ir-mcp/v/<version>`.
 
+**0.5.22** fixes from a user test on Linux, macOS and Windows:
+- Cursor: `setup` and `doctor` warn when `sentinel-ir` is in both
+  `~/.cursor/mcp.json` and the project `.cursor/mcp.json` (Cursor may start
+  the global one, without the project's exclusions and audit log);
+  `doctor --client cursor` checks the global file when the project has none.
+- `doctor` warns about an npm `min-release-age` or `before` setting (e.g. a
+  project `.npmrc`), which makes npx start an older release.
+- Several folders: a relative path resolves against the first folder in which
+  it exists, and `analyze_directory` without `path` lists the folders it did
+  not scan in `otherFolders`.
+- macOS: an absolute path in a different letter case than the folder is no
+  longer refused. A symlink loop is named as such. UTF-16 files with a byte
+  order mark are read as text.
+- `sentinel-ir` 0.5.15: TypeScript `<in T>` / `<out T>` parse; code with no
+  or an unsupported file extension is `incomplete` and at least `medium`.
+- Help and messages use `npx -y sentinel-ir-mcp@stable-0.5`; `SECURITY.md`
+  commands work in Windows PowerShell 5.1.
+
 **0.5.21** the audit log line of a tool call is written before the agent
 gets the answer, so a client that kills the server right after (Windows ends
 it at once) no longer loses the last lines. `SECURITY.md` is now in the npm

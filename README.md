@@ -56,10 +56,23 @@ and Rust (and what is not) is listed in the
 
 Older versions: [CHANGELOG.md](https://gitlab.com/jakubrojicek11/sentinel-ir-mcp/-/blob/main/CHANGELOG.md).
 
-**0.5.21** the audit log line of a tool call is written before the agent
-gets the answer, so a client that kills the server right after (Windows ends
-it at once) no longer loses the last lines. `SECURITY.md` is now in the npm
-package.
+**0.5.22** fixes from a user test on Linux, macOS and Windows:
+- Cursor: `setup` and `doctor` warn when `sentinel-ir` is in both
+  `~/.cursor/mcp.json` and the project `.cursor/mcp.json` (Cursor may start
+  the global one, without the project's exclusions and audit log);
+  `doctor --client cursor` checks the global file when the project has none.
+- `doctor` warns about an npm `min-release-age` or `before` setting (e.g. a
+  project `.npmrc`), which makes npx start an older release.
+- Several folders: a relative path resolves against the first folder in which
+  it exists, and `analyze_directory` without `path` lists the folders it did
+  not scan in `otherFolders`.
+- macOS: an absolute path in a different letter case than the folder is no
+  longer refused. A symlink loop is named as such. UTF-16 files with a byte
+  order mark are read as text.
+- `sentinel-ir` 0.5.15: TypeScript `<in T>` / `<out T>` parse; code with no
+  or an unsupported file extension is `incomplete` and at least `medium`.
+- Help and messages use `npx -y sentinel-ir-mcp@stable-0.5`; `SECURITY.md`
+  commands work in Windows PowerShell 5.1.
 
 ## Tools
 
@@ -159,6 +172,10 @@ Open Cursor Settings → Customize → MCPs and turn on the switch next to
 `sentinel-ir` (its source is the project's `.cursor/mcp.json`). It then shows
 *Connected* and 3 tools. A server installed with the link below (user-level
 `~/.cursor/mcp.json`) connected without this step.
+Keep `sentinel-ir` in only one of the two files: with both, Cursor may start
+the global one, which does not have the project's `--exclude` and
+`--audit-log`. Since 0.5.22 `setup` and `doctor` warn about it, and
+`doctor --client cursor` checks the global file when the project has no entry.
 
 ### Getting a newer version
 
@@ -174,13 +191,19 @@ instead. If a client still starts an old copy:
 1. Run `npx -y sentinel-ir-mcp@stable-0.5 doctor`. It prints the versions it
    runs and lists every cached copy with a `sentinel-ir` older than the
    version it needs, with its folder.
-2. Close the client app and delete those folders (npm 11: `npm cache npx rm
-   <key>`). Deleting the whole `_npx` folder in npm's cache also works
+2. Close the client app and delete those folders (npm 11 can also do it:
+   `npm cache npx rm <key>`; npm 10 has no such command). Deleting the whole `_npx` folder in npm's cache also works
    (`npm config get cache` shows where it is; usually `~/.npm/_npx`, on
    Windows `%LocalAppData%\npm-cache\_npx`); it removes all packages cached
    by `npx`, which are downloaded again when needed.
 3. Run `npx -y sentinel-ir-mcp@stable-0.5 setup` for your client and start the
    client again.
+
+If `doctor` warns about `min-release-age` or `before` (`npm.policy`), an
+`.npmrc` (in the project, a parent folder or your npm config) tells npm to
+install only older releases, so `@stable-0.5` starts an older version and
+deleting the cache does not help. `npm config list` in that folder shows which
+file sets it.
 
 A folder that is literally named `setup`, `doctor` or `guide` must now be
 passed as `./setup` (or an absolute path); the bare word is the command.
@@ -207,6 +230,10 @@ it, use `setup` instead.
 
 Some sites (including GitLab and npm) may not open `cursor://` or `vscode:`
 links; copy the link into the browser address bar or use `setup`.
+The links write `"command": "npx"`. On Windows `setup` writes
+`"command": "cmd", "args": ["/c", "npx", ...]` instead, because some clients
+there do not find `npx` without a shell; `doctor` warns about a plain `npx`
+entry on Windows.
 
 ### Manual setup
 
@@ -373,6 +400,10 @@ sentinel-ir-mcp [--exclude <name>]... [--audit-log[=<folder>]] [--max-file-bytes
   or, without folder arguments, inside one of the client's MCP roots. `../`,
   absolute paths elsewhere and symlinks pointing outside are refused, with the
   same answer whether or not the path exists (since 0.5.8).
+- **Several folders.** A relative path is taken from the first allowed folder
+  in which it exists (since 0.5.22; before, always the first).
+  `analyze_directory` without `path` scans only the first folder and lists
+  the others in `otherFolders`.
 - **Local paths only.** URLs (`http://…`, `data:`, `mailto:`, `file:src/x.js`),
   network paths (`\\server\share\x.js`, `//server/share/x.js`) and
   `file://server/…` are refused as `Not a file path: … is a URL` or as

@@ -11,7 +11,7 @@ const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio
 const { version, dependencies } = require("../package.json");
 const { SERVER_NAME, PACKAGE_SPEC, homeOf, WORKSPACE_VAR, CLIENTS, FILE_CLIENTS, isWindowsNpxWrapper, entryExcludes, entryAuditLog, serverFlags } = require("./clients");
 const { AuditLogError, defaultAuditDir, normalizeAuditDir, assertOutsideProjects, logFiles, dayName, createAuditLog } = require("./auditLog");
-const { readConfig, validateProject, SetupError } = require("./setup");
+const { readConfig, validateProject, SetupError, hasServerEntry } = require("./setup");
 const { createExcluder, ExcludeError } = require("./exclude");
 const { SKIP_DIRS } = require("./analyze");
 const { describeExcluded } = require("./excludeReport");
@@ -87,6 +87,40 @@ function npmGlobalPrefix(env, platform, execPath, timeoutMs = 5000) {
     } catch {
         return null;
     }
+}
+
+// npm settings that make npx install an older release than a tag names, as npm
+// itself resolves them in folder cwd (project .npmrc, user and global config), or
+// null. The same child process rules as npmGlobalPrefix; npm prints only these values.
+const POLICY_KEYS = ["min-release-age", "before"];
+function npmPolicy(env, platform, execPath, cwd, timeoutMs = 5000) {
+    const p = platform === "win32" ? path.win32 : path.posix;
+    const cli = npmCli(env, platform, execPath);
+    if (!cli) return null;
+    try {
+        const r = require("child_process").spawnSync(execPath, [cli, "config", "get", ...POLICY_KEYS, "--logs-dir", p.join(cli, "no-logs"), "--logs-max", "0", "--no-update-notifier"],
+            { cwd, env, encoding: "utf8", timeout: timeoutMs, windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
+        if (r.status !== 0 || typeof r.stdout !== "string") return null;
+        const out = {};
+        for (const line of r.stdout.split(/\r?\n/)) {
+            const m = /^([a-z-]+)=(.*)$/.exec(line.trim());
+            if (m && POLICY_KEYS.includes(m[1])) out[m[1]] = m[2];
+        }
+        return out;
+    } catch {
+        return null;
+    }
+}
+
+function checkNpmPolicy(io, project, add) {
+    const values = io.npmPolicy ? io.npmPolicy(project) : npmPolicy(io.env, io.platform, io.execPath || process.execPath, project);
+    if (!values) return;
+    const set = POLICY_KEYS.filter((k) => typeof values[k] === "string" && !["", "null", "undefined", "0"].includes(values[k]))
+        .map((k) => `${k}=${values[k].slice(0, 40)}`);
+    if (set.length === 0) return;
+    add("warn", "npm.policy", `npm in ${project} has ${set.join(", ")} (from an .npmrc there, in a parent folder or in your npm config); ` +
+        `npx then installs an older sentinel-ir-mcp than the newest ${PACKAGE_SPEC.split("@")[1]}, and deleting the npx cache does not change that`,
+        `See which file sets it: npm config list (in that folder). Remove it there to get the newest version, or keep it and accept the older one.`);
 }
 
 // Where npm installs a global sentinel-ir-mcp: the first entry is npm's prefix now; the rest are other
@@ -306,7 +340,7 @@ async function checkUpdate(io, add) {
     const from = installKind(io.packageDir || PACKAGE_DIR, globals);
     const where = { npx: `the npx cache (${from.dir})`, global: `a global install (${from.dir})`, other: from.dir }[from.kind];
     const fix = {
-        npx: `Close the client, delete that folder (npm 11: npm cache npx rm ${from.key}), then run: npx -y ${spec} setup`,
+        npx: `Close the client, delete that folder (npm 11 can also: npm cache npx rm ${from.key}), then run: npx -y ${spec} setup`,
         global: `Run: npm install -g ${spec} (or npm uninstall -g sentinel-ir-mcp), then: npx -y ${spec} doctor`,
         other: `Run the current version: npx -y ${spec} doctor`
     }[from.kind];
@@ -385,7 +419,7 @@ function checkNpxCache(env, platform, add, setupHint) {
     for (const c of stale) {
         const who = c.spec ? `a client entry with ${c.spec} keeps starting it` : "a client entry with the version or range it was downloaded for keeps starting it";
         add("warn", "npx.cache", `The npx cache still holds sentinel-ir-mcp ${c.mcp} (sentinel-ir ${c.ir}) in ${c.dir}; ${who}, and versions older than sentinel-ir-mcp ${version} / sentinel-ir ${IR_MIN} miss fixes`,
-            `Close the client, delete that folder (npm 11: npm cache npx rm ${c.key}), then run: npx -y ${PACKAGE_SPEC} setup ${setupHint}`);
+            `Close the client, delete that folder (npm 11 can also: npm cache npx rm ${c.key}), then run: npx -y ${PACKAGE_SPEC} setup ${setupHint}`);
     }
 }
 
@@ -583,6 +617,7 @@ async function runDoctor(opts, io) {
     await checkUpdate(io, add);
     checkGlobalInstall(io, add);
     checkNpxCache(io.env, io.platform, add, setupHint);
+    checkNpmPolicy(io, project, add);
 
     if (opts.client && !Object.prototype.hasOwnProperty.call(CLIENTS, opts.client)) {
         add("fail", "client", `Unknown client "${opts.client}"`, `Use one of: ${Object.keys(CLIENTS).join(", ")}.`);
@@ -603,6 +638,20 @@ async function runDoctor(opts, io) {
             add("warn", `${client}.location`, `${CLIENTS[client].label}: only the old config ${legacy} exists`,
                 `Current ${CLIENTS[client].label} reads ${file || "a new location"}. Run: npx -y ${PACKAGE_SPEC} setup ${setupFor(client)}`);
             file = legacy;
+        }
+        // Cursor reads both its global and the project config; with "sentinel-ir"
+        // in both it may start the global one, without the project's options.
+        if (client === "cursor" && !opts.config && !cursorGlobal) {
+            const globalFile = CLIENTS.cursor.configPath({ ...ctx, global: true });
+            const inProject = hasServerEntry(file);
+            const inGlobal = hasServerEntry(globalFile);
+            if (inProject && inGlobal) {
+                add("warn", "cursor.duplicate", `Cursor: "${SERVER_NAME}" is in both ${file} and ${globalFile}; Cursor may start the global one, which does not have this project's exclusions and audit log`,
+                    `Keep one: delete the "${SERVER_NAME}" entry from ${globalFile} (or the project one), or switch one off in Cursor Settings → MCPs.`);
+            } else if (!inProject && inGlobal) {
+                add("ok", "cursor.location", `Cursor: no "${SERVER_NAME}" in ${file}; checking the global ${globalFile}`);
+                file = globalFile;
+            }
         }
         const found = checkConfig(client, file, Boolean(opts.client), project, add, io.platform, io.env, setupFor);
         if (found) configured.push({ label: CLIENTS[client].label, ...found });
@@ -652,4 +701,4 @@ async function runDoctor(opts, io) {
     return failed ? 1 : 0;
 }
 
-module.exports = { runDoctor, entryFolders, olderThan, staleNpxCopies, fetchDistTags, fetchDistTagsIsolated, proxyFor, installKind, globalDirs, npmGlobalPrefix, IR_MIN };
+module.exports = { runDoctor, npmPolicy, entryFolders, olderThan, staleNpxCopies, fetchDistTags, fetchDistTagsIsolated, proxyFor, installKind, globalDirs, npmGlobalPrefix, IR_MIN };

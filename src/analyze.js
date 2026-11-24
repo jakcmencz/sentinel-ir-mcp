@@ -5,7 +5,7 @@ const { createHash } = require("crypto");
 const { constants, realpathSync } = require("fs");
 const path = require("path");
 const { analyzeAsync, compress } = require("sentinel-ir");
-const { AccessError, resolveInside, isInside, isSourceFile, plainPath, SUPPORTED_LIST } = require("./paths");
+const { AccessError, resolveInside, isInside, isSourceFile, plainPath, baseRoot, realpath, SUPPORTED_LIST } = require("./paths");
 const { isExcluded, NONE } = require("./exclude");
 
 // O_NONBLOCK: opening a FIFO swapped in after listing must not block the
@@ -25,7 +25,8 @@ function excludedError(label) {
 // Windows short names, letter case).
 function resolveAllowed(requested, roots, excluder) {
     if (excluder.active && roots.length && typeof requested === "string" && requested.trim() !== "" && !requested.includes("\0")) {
-        if (isExcluded(path.resolve(roots[0], plainPath(requested)), roots, excluder)) throw excludedError(requested);
+        const plain = plainPath(requested);
+        if (isExcluded(path.resolve(baseRoot(plain, roots), plain), roots, excluder)) throw excludedError(requested);
     }
     const resolved = resolveInside(requested, roots);
     if (isExcluded(resolved.real, roots, excluder)) throw excludedError(requested);
@@ -52,7 +53,7 @@ async function readInside(full, roots, maxFileBytes, label, excluder = NONE, onR
         }
         // Same realpath as resolveInside: on Windows fs.promises.realpath
         // expands 8.3 short names (GITLAB~1) and would never match the roots.
-        const real = realpathSync(full);
+        const real = realpath(full);
         const current = await fs.stat(real, { bigint: true });
         if (!roots.some((r) => isInside(real, r)) || current.dev !== opened.dev || current.ino !== opened.ino) {
             throw new AccessError(`Access denied: ${label} changed while it was being read`);
@@ -76,10 +77,18 @@ async function readInside(full, roots, maxFileBytes, label, excluder = NONE, onR
         if (length === buffer.length) throw new AccessError(`Access denied: ${label} changed while it was being read`);
         // The audit log records which bytes were read, never the bytes.
         if (onRead) onRead(createHash("sha256").update(buffer.subarray(0, length)).digest("hex"));
-        return buffer.toString("utf8", 0, length);
+        return decode(buffer.subarray(0, length));
     } finally {
         await handle.close();
     }
+}
+
+// UTF-16 with a byte order mark (Windows editors, PowerShell) would read as
+// broken code in UTF-8.
+function decode(bytes) {
+    if (bytes[0] === 0xff && bytes[1] === 0xfe) return bytes.subarray(2).toString("utf16le");
+    if (bytes[0] === 0xfe && bytes[1] === 0xff) return Buffer.from(bytes.subarray(2, bytes.length - (bytes.length % 2))).swap16().toString("utf16le");
+    return bytes.toString("utf8");
 }
 
 function realNative(p) {
@@ -280,7 +289,7 @@ function fullEntry(rel, ir) {
 async function analyzeDirectory(
     requested,
     roots,
-    { maxFiles, maxFileBytes, recursive = true, timeBudgetMs = Infinity, detail = "summary", excluder = NONE, hashes = null }
+    { maxFiles, maxFileBytes, recursive = true, timeBudgetMs = Infinity, detail = "summary", excluder = NONE, hashes = null, defaulted = false }
 ) {
     const started = Date.now();
     const { real, root, display } = resolveAllowed(requested, roots, excluder);
@@ -337,9 +346,17 @@ async function analyzeDirectory(
           "so this is not a clean result for the folder. Call again with a larger max_files or on subfolders."
         : undefined;
 
+    // Without a path only the first allowed folder is scanned; the others must not go unnoticed.
+    const others = defaulted ? roots.filter((r) => r !== root) : [];
+    const note = others.length
+        ? `Scanned only the first allowed folder (${root}). ${others.length} more allowed folder(s) were not scanned: ` +
+          "call again with path set to each folder in otherFolders."
+        : undefined;
+
     return {
         folder: display,
         ...(warning ? { warning } : {}),
+        ...(note ? { note, otherFolders: others } : {}),
         analyzed: results.length,
         truncated,
         notScanned,
