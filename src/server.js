@@ -115,7 +115,7 @@ function createServer(options = {}) {
     const auditLog = options.auditLog || createAuditLog({ dir: options.auditDir });
 
     const foldersNote = fixedRoots.length > 1
-        ? ` Allowed folders: ${fixedRoots.join(", ")}. With several folders every path in a result is a full path; ` +
+        ? ` There are ${fixedRoots.length} allowed folders (analyze_directory lists them in allowedFolders). Every path in a result is a full path; ` +
           "a relative path that exists in more than one folder is refused as ambiguous, so pass full paths."
         : "";
     const server = new McpServer({ name: "sentinel-ir-mcp", version }, { instructions: INSTRUCTIONS + foldersNote + excludeNote });

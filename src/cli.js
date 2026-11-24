@@ -85,6 +85,7 @@ function parse(command, argv) {
         }
         if (OPTIONAL_VALUE.has(arg)) {
             if (value === "") throw new UsageError(`${arg}= needs a folder`);
+            if (opts[spec[arg]] !== undefined) throw new UsageError(`${arg} given more than once`);
             opts[spec[arg]] = value === undefined ? true : value;
         } else if (spec[arg] === true) {
             if (value !== undefined) throw new UsageError(`${arg} takes no value`);

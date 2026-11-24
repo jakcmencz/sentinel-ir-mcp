@@ -67,7 +67,8 @@ test("several folders: scan paths are full paths and analyze_file reads exactly 
         const first = (await call(c.client, "analyze_directory", {})).structuredContent;
         assert.equal(first.folder, sb.first);
         assert.ok(first.files.every((f) => path.isAbsolute(f.path)), JSON.stringify(first.files));
-        assert.match(c.client.getInstructions(), /Allowed folders: .*first.*second.*full path/);
+        assert.match(c.client.getInstructions(), /There are 2 allowed folders \(analyze_directory lists them in allowedFolders\)\. Every path in a result is a full path/);
+        assert.ok(!c.client.getInstructions().includes(sb.second), "folder names stay out of the instructions");
     } finally { await c.close(); sb.cleanup(); }
 });
 
@@ -109,6 +110,7 @@ test("setup refuses --project given twice and explains a second bare folder", as
     assert.throws(() => parse("setup", ["--client", "cursor", "--client", "vscode"]), /--client given more than once/);
     assert.throws(() => parse("setup", ["a", "b"]), /pass it with --project/);
     assert.throws(() => parse("log", ["--audit-log"]), /log reads the audit log from --dir/);
+    assert.throws(() => parse("setup", ["--audit-log=/a", "--audit-log=/b"]), /--audit-log given more than once/);
     const sb = sandbox();
     try {
         const r = await run(sb, "setup", ["--client", "cursor", "--project", sb.first, "--project", sb.second, "--yes"]);
@@ -175,5 +177,17 @@ test("hard links skipped in a scan do not take places in max_files", { skip: pro
         assert.deepEqual(dir.files.map((f) => f.path).sort(), ["common.js", "z.js"]);
         assert.deepEqual(dir.skipped.hardlinks.sort(), ["h1.js", "h2.js", "only.js"]);
         assert.equal(dir.truncated, false);
+    } finally { await c.close(); sb.cleanup(); }
+});
+
+test("several folders: a capped scan still lists a Cargo target/ found after max_files, as a full path", { skip: process.platform === "win32" }, async () => {
+    const sb = sandbox();
+    fs.mkdirSync(path.join(sb.second, "target"));
+    fs.writeFileSync(path.join(sb.second, "target", "CACHEDIR.TAG"), "Signature: 8a477f597d28d172789f06886806bc55\n");
+    const c = await connect({ roots: [sb.first, sb.second] });
+    try {
+        const dir = (await call(c.client, "analyze_directory", { path: sb.second, max_files: 1 })).structuredContent;
+        assert.equal(dir.truncated, true);
+        assert.deepEqual(dir.skipped.cargoTarget, [path.join(sb.second, "target")]);
     } finally { await c.close(); sb.cleanup(); }
 });

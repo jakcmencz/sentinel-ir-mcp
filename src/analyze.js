@@ -315,12 +315,12 @@ async function analyzeDirectory(
     // With several folders every path in the answer is a full path, so it can
     // be passed to analyze_file as is.
     const shown = roots.length > 1 ? (rel) => path.join(root, rel) : (rel) => rel;
-    const files = walked.files.map((f) => ({ full: f.full, rel: shown(f.rel) }));
-    const skipped = { ...walked.skipped };
-    for (const k of ["tooLarge", "unreadable", "hardlinks", "cargoTarget"]) skipped[k] = walked.skipped[k].map(shown);
+    const files = walked.files.map((f) => ({ full: f.full, rel: shown(f.rel), own: f.rel }));
+    // countRest adds to these lists too; they are shown after it.
+    const { skipped } = walked;
     const results = [];
     const notAnalyzed = [];
-    for (const { full, rel } of files) {
+    for (const { full, rel, own } of files) {
         // A running analysis cannot be interrupted, so the budget only stops
         // new files from starting; the rest are listed in notAnalyzed.
         if (notAnalyzed.length || Date.now() - started >= timeBudgetMs) {
@@ -340,7 +340,7 @@ async function analyzeDirectory(
             }
             const list = err instanceof TooLargeError ? skipped.tooLarge
                 : err instanceof HardlinkError ? skipped.hardlinks : skipped.unreadable;
-            list.push(rel);
+            list.push(own);
             continue;
         }
         results.push({ ...(detail === "full" ? fullEntry(rel, ir) : summaryEntry(rel, ir)), sha256: hash });
@@ -349,6 +349,7 @@ async function analyzeDirectory(
         ((RISK_ORDER[a.risk] ?? 9) - (RISK_ORDER[b.risk] ?? 9)) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 
     const { notScanned, capped } = await countRest(started + timeBudgetMs);
+    for (const k of ["tooLarge", "unreadable", "hardlinks", "cargoTarget"]) skipped[k] = skipped[k].map(shown);
 
     const riskCounts = { critical: 0, high: 0, medium: 0, low: 0 };
     for (const r of results) if (r.risk in riskCounts) riskCounts[r.risk]++;
