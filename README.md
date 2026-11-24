@@ -73,10 +73,10 @@ Older versions: [CHANGELOG.md](https://gitlab.com/jakubrojicek11/sentinel-ir-mcp
 - Windows hints use double quotes, which work in PowerShell and cmd.exe. A
   symlink loop in a parent folder is named as such. Hard links skipped in a
   scan no longer take places in `max_files`.
-- `sentinel-ir` 0.5.16: an unsupported script (`install`, `Makefile`, `.sh`,
+- `sentinel-ir` 0.5.16 and 0.5.17: an unsupported script (`install`, `Makefile`, `.sh`,
   `.ps1`, `.rb`) that pipes a download to a shell, opens a reverse shell,
   sends secrets or spawns processes is `critical`; deletes and persistence
-  are `high`.
+  are `high`. 0.5.17: these checks take milliseconds even on a 1 MB line.
 - `SECURITY.md` names a real version instead of `<version>`.
 
 ## Tools
